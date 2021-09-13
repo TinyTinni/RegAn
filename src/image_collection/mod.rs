@@ -68,8 +68,6 @@ pub async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         deviation: f32,
     }
 
-    // todo: mutex around db access
-
     let rt_home = sqlx::query_as!(
         Rating,
         "SELECT rating, deviation FROM players WHERE id = ?",
@@ -143,27 +141,6 @@ pub async fn insert_match(db: &SqlitePool, m: &Match) -> Result<()> {
 // }
 
 pub async fn calculate_new_match(db: &SqlitePool) -> Result<Duel> {
-    calculate_new_match2(&db).await
-    // let home = random_file()?;
-    // let guest = random_file()?;
-    // struct Id {
-    //     id: i64,
-    // }
-    // let home_id = sqlx::query_as!(Id, "SELECT id FROM players WHERE name = ?", home)
-    //     .fetch_one(db)
-    //     .await?;
-    // let guest_id = sqlx::query_as!(Id, "SELECT id FROM players WHERE name = ?", guest)
-    //     .fetch_one(db)
-    //     .await?;
-    // Ok(Duel {
-    //     home,
-    //     home_id: home_id.id as u32,
-    //     guest,
-    //     guest_id: guest_id.id as u32,
-    // })
-}
-
-async fn calculate_new_match2(db: &SqlitePool) -> Result<Duel> {
     struct Player {
         id: i64,
         rating: f32,
