@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1" , charset="UTF-8">
+  <title>RegAn</title>
+  <style>
+    img {
+      display: grid;
+      margin: auto;
+      width: 92%;
+      filter: opacity(20%) blur(8px);
+    }
+
+    figcaption {
+      width: 50%;
+      float: left;
+      margin: auto;
+    }
+
+    body {
+      color: white;
+      background-color: #282827;
+    }
+
+    .center_btn {
+      display: grid;
+      width: 300px;
+      margin: auto;
+    }
+  </style>
+</head>
+
+<body onload="onSideLoaded()">
+
+  <h2>Regression Annotation Tool</h2>
+  <p>Welcome. Please click on the image which looks better.</p>
+  <div class="center_btn">
+    <button class="center_btn" id="btn_draw" , disabled>Equal</button>
+  </div>
+
+  <figcaption>
+    <img src="" id="left_image" data-id onload="fadeIn('left_image')">
+  </figcaption>
+  <figcaption>
+    <img src="" id="right_image" data-id onload="fadeIn('right_image')">
+  </figcaption>
+
+
+  <script language="javascript">
+
+    function loadNewMatch(li, ri, next_match) {
+      li.src = "images/" + next_match.home
+      ri.src = "images/" + next_match.guest
+      li.dataId = next_match.home_id
+      ri.dataId = next_match.guest_id
+    }
+
+    function fadeOut(img) {
+      img.style.filter = "opacity(20%) blur(8px)"
+      img.style.transition = "4s";
+      img.removeEventListener("click", onPlayerClicked)
+    }
+
+    function fadeIn(img_str) {
+      img = document.getElementById(img_str)
+      img.style.filter = "opacity(100%) blur(0px)"
+      img.style.transition = "0.75s";
+
+      // if both images are loaded, make them clickable
+      left_image = document.getElementById("left_image")
+      right_image = document.getElementById("right_image")
+      if (left_image.complete && right_image.complete) {
+        left_image.addEventListener("click", onPlayerClicked)
+        right_image.addEventListener("click", onPlayerClicked)
+        btn = document.getElementById("btn_draw")
+        btn.removeAttribute("disabled")
+        btn.addEventListener("click", onPlayerClicked)
+      }
+    }
+
+    function onSideLoaded() {
+      left_image = document.getElementById("left_image")
+      right_image = document.getElementById("right_image")
+      fetch('/matches', { method: 'GET' }).
+        then(function (response) {
+          response.json().
+            then(function (next_match) {
+              loadNewMatch(left_image, right_image, next_match)
+            })
+        })
+    }
+
+    function onPlayerClicked() {
+      left_image = document.getElementById("left_image")
+      right_image = document.getElementById("right_image")
+
+      // disable images, prepare for loading
+      fadeOut(left_image)
+      fadeOut(right_image)
+      document.getElementById("btn_draw").setAttribute("disabled", true)
+      document.getElementById("btn_draw").removeEventListener("click", onPlayerClicked)
+
+      // get winner
+      if (event.currentTarget.id == "left_image") {
+        winner = 1
+      } else if (event.currentTarget.id == "right_image") {
+        winner = 0
+      } else if (event.currentTarget.id == "btn_draw") {
+        winner = 0.5
+      }
+
+      // prepare message
+      const match = {
+        home_id: left_image.dataId,
+        guest_id: right_image.dataId,
+        won: winner
+      }
+
+      // send message and load new match
+      fetch('/scores', { method: 'POST', body: JSON.stringify(match), headers: {'Content-Type': 'application/json'} }).
+        then(function (response) {
+          response.json().
+            then(function (next_match) {
+              loadNewMatch(left_image, right_image, next_match)
+            })
+        })
+    }
+  </script>
+
+</body>
+
+</html>
