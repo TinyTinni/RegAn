@@ -1,13 +1,68 @@
+extern crate crossbeam;
+extern crate sqlx;
+extern crate tokio;
+
 mod ranking;
 
+use std::str::FromStr;
+
 use anyhow::Result;
+use crossbeam::queue::ArrayQueue;
 use rand::prelude::IteratorRandom;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
-// pub struct Collection{
+#[derive(Clone)]
+pub struct ImageCollection {
+    candidates: std::sync::Arc<ArrayQueue<Duel>>,
+    db: SqlitePool,
+}
 
-// }
+pub struct Options {
+    pub db_path: String,
+    pub candidate_buffer: usize,
+}
+
+impl ImageCollection {
+    pub async fn new(options: &Options) -> Result<ImageCollection> {
+        let db_options =
+            sqlx::sqlite::SqliteConnectOptions::from_str(&options.db_path)?.create_if_missing(true);
+
+        let db = SqlitePool::connect_with(db_options).await?;
+        sqlx::query_file!("./schema.sql").execute(&db).await?;
+        check_db_integrity(&db).await?;
+        let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(options.candidate_buffer));
+        let new_duel = calculate_new_match(&db).await?;
+        candidates.push(new_duel);
+        Ok(ImageCollection { candidates, db })
+    }
+
+    pub async fn insert_match(&self, m: &Match) -> Result<()> {
+        let db = self.db.clone();
+        let can_queue = self.candidates.clone();
+        let m = m.clone();
+
+        tokio::spawn(async move {
+            insert_match(&db, &m).await;
+            update_rating(&db, &m).await;
+            match calculate_new_match(&db).await {
+                Ok(new_duel) => {
+                    // ignore if queue is full
+                    let _ = can_queue.push(new_duel); // ignore output
+                }
+                _ => {}
+            }
+        });
+        Ok(())
+    }
+
+    pub async fn new_duel(&self) -> Result<Duel> {
+        match self.candidates.pop() {
+            Some(duel) => return Ok(duel),
+            None => calculate_new_match(&self.db).await,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Duel {
@@ -17,7 +72,7 @@ pub struct Duel {
     pub guest_id: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct Match {
     pub home_id: u32,
     pub guest_id: u32,
@@ -62,7 +117,7 @@ pub async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
-pub async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
+async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     struct Rating {
         rating: f32,
         deviation: f32,
@@ -115,7 +170,7 @@ pub async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     Ok(())
 }
 
-pub async fn insert_match(db: &SqlitePool, m: &Match) -> Result<()> {
+async fn insert_match(db: &SqlitePool, m: &Match) -> Result<()> {
     sqlx::query!(
         "INSERT INTO matches (home_players_id, guest_players_id, result, timestamp) VALUES (?, ?, ?, strftime('%Y-%m-%d %H %M','now'))",
         m.home_id,
@@ -140,7 +195,7 @@ pub async fn insert_match(db: &SqlitePool, m: &Match) -> Result<()> {
 //     Ok(fname)
 // }
 
-pub async fn calculate_new_match(db: &SqlitePool) -> Result<Duel> {
+async fn calculate_new_match(db: &SqlitePool) -> Result<Duel> {
     struct Player {
         id: i64,
         rating: f32,

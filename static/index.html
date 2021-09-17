@@ -31,7 +31,7 @@
   </style>
 </head>
 
-<body onload="onSideLoaded()">
+<body onload="loadNewMatch()">
 
   <h2>Regression Annotation Tool</h2>
   <p>Welcome. Please click on the image which looks better.</p>
@@ -48,13 +48,6 @@
 
 
   <script language="javascript">
-
-    function loadNewMatch(li, ri, next_match) {
-      li.src = "images/" + next_match.home
-      ri.src = "images/" + next_match.guest
-      li.dataId = next_match.home_id
-      ri.dataId = next_match.guest_id
-    }
 
     function fadeOut(img) {
       img.style.filter = "opacity(20%) blur(8px)"
@@ -79,14 +72,17 @@
       }
     }
 
-    function onSideLoaded() {
+    function loadNewMatch() {
       left_image = document.getElementById("left_image")
       right_image = document.getElementById("right_image")
       fetch('/matches', { method: 'GET' }).
         then(function (response) {
           response.json().
             then(function (next_match) {
-              loadNewMatch(left_image, right_image, next_match)
+              left_image.src = "images/" + next_match.home
+              right_image.src = "images/" + next_match.guest
+              left_image.dataId = next_match.home_id
+              right_image.dataId = next_match.guest_id
             })
         })
     }
@@ -118,13 +114,9 @@
       }
 
       // send message and load new match
-      fetch('/scores', { method: 'POST', body: JSON.stringify(match), headers: {'Content-Type': 'application/json'} }).
-        then(function (response) {
-          response.json().
-            then(function (next_match) {
-              loadNewMatch(left_image, right_image, next_match)
-            })
-        })
+      loadNewMatch()
+      fetch('/scores', { method: 'POST', body: JSON.stringify(match), headers: { 'Content-Type': 'application/json' } })
+
     }
   </script>
 
