@@ -1,16 +1,18 @@
 extern crate crossbeam;
 extern crate sqlx;
 extern crate tokio;
+extern crate tokio_stream;
 
 mod ranking;
 
 use std::str::FromStr;
-
 use anyhow::Result;
 use crossbeam::queue::ArrayQueue;
-use rand::prelude::IteratorRandom;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use tokio_stream::StreamExt;
+
+const QUEUE_LENGTH : usize = 20;
 
 #[derive(Clone)]
 pub struct ImageCollection {
@@ -32,8 +34,10 @@ impl ImageCollection {
         sqlx::query_file!("./schema.sql").execute(&db).await?;
         check_db_integrity(&db).await?;
         let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(options.candidate_buffer));
-        let new_duel = calculate_new_match(&db).await?;
-        candidates.push(new_duel);
+        let new_duels = calculate_new_matches(&db, QUEUE_LENGTH).await?;
+        for nd in new_duels.into_iter() {
+            let _ = candidates.push(nd);
+        }
         Ok(ImageCollection { candidates, db })
     }
 
@@ -43,14 +47,19 @@ impl ImageCollection {
         let m = m.clone();
 
         tokio::spawn(async move {
-            insert_match(&db, &m).await;
-            update_rating(&db, &m).await;
-            match calculate_new_match(&db).await {
-                Ok(new_duel) => {
-                    // ignore if queue is full
-                    let _ = can_queue.push(new_duel); // ignore output
+            let _ = insert_match(&db, &m).await;
+            let _ = update_rating(&db, &m).await;
+
+            if can_queue.len() < (QUEUE_LENGTH / 2) {
+                match calculate_new_matches(&db, QUEUE_LENGTH).await {
+                    Ok(new_duels) => {
+                        // ignore if queue is full
+                        for nd in new_duels.into_iter().skip(QUEUE_LENGTH-can_queue.len()){
+                            let _ = can_queue.push(nd); // ignore output
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         });
         Ok(())
@@ -59,7 +68,7 @@ impl ImageCollection {
     pub async fn new_duel(&self) -> Result<Duel> {
         match self.candidates.pop() {
             Some(duel) => return Ok(duel),
-            None => calculate_new_match(&self.db).await,
+            None => Err(anyhow::Error::msg("No Candidates found.".to_owned())), //TODO try to compute new ones
         }
     }
 }
@@ -195,52 +204,55 @@ async fn insert_match(db: &SqlitePool, m: &Match) -> Result<()> {
 //     Ok(fname)
 // }
 
-async fn calculate_new_match(db: &SqlitePool) -> Result<Duel> {
+async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<Duel>> {
     struct Player {
         id: i64,
         rating: f32,
         deviation: f32,
         name: String,
     }
-    let home_id = sqlx::query_as!(
+    let n_matches = n_matches as u32;
+    let home_ids = sqlx::query_as!(
         Player,
         "SELECT id, rating, deviation AS deviation, name FROM players WHERE 
              id IN 
                (SELECT id FROM players 
                 ORDER BY deviation DESC 
-                LIMIT 20)"
+                LIMIT ?)",
+        n_matches
     )
     .fetch_all(db)
     .await?;
 
-    let home_id = match home_id.into_iter().choose(&mut rand::thread_rng()) {
-        Some(it) => Ok(it),
-        None => Err(anyhow::Error::msg(
-            "No Image Element found. Image Database seems to be empty.",
-        )),
-    }?;
-
-    // todo: random pick normal distributed around home_id.rating instead of unknown distribution
-    let guest_id = sqlx::query_as!(
-        Player,
-        "SELECT id, rating, deviation, name FROM players 
+    let mut stream = tokio_stream::iter(home_ids);
+    let mut result = Vec::new();
+    while let Some(home_id) = stream.next().await {
+        // todo: random pick normal distributed around home_id.rating instead of unknown distribution
+        match sqlx::query_as!(
+            Player,
+            "SELECT id, rating, deviation, name FROM players 
             WHERE id IN (SELECT id FROM players 
                 WHERE id != $1 AND
                 rating <= $2 + 1.96 * $3 AND
                 rating >= $2 - 1.96 * $3
                 ORDER BY RANDOM() 
                 LIMIT 1)",
-        home_id.id,
-        home_id.rating,
-        home_id.deviation
-    )
-    .fetch_one(db)
-    .await?;
+            home_id.id,
+            home_id.rating,
+            home_id.deviation
+        )
+        .fetch_one(db)
+        .await
+        {
+            Ok(guest_id) => result.push(Duel {
+                home: home_id.name,
+                home_id: home_id.id as u32,
+                guest: guest_id.name,
+                guest_id: guest_id.id as u32,
+            }),
+            _ => {}
+        };
+    }
 
-    Ok(Duel {
-        home: home_id.name,
-        home_id: home_id.id as u32,
-        guest: guest_id.name,
-        guest_id: guest_id.id as u32,
-    })
+    Ok(result)
 }
