@@ -95,7 +95,7 @@ impl ImageCollection {
                     match calculate_new_matches(&db, can_queue.capacity()).await {
                         Ok(new_duels) => {
                             // ignore if queue is full
-                            for nd in new_duels.into_iter().skip(can_queue.len()) {
+                            for nd in new_duels.into_iter().skip(can_queue.len() + 1) {
                                 let _ = can_queue.push(nd); // ignore output
                             }
                         }
