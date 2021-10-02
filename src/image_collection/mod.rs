@@ -19,13 +19,28 @@ pub struct ImageCollection {
     db: SqlitePool,
 }
 
-pub struct Options {
+pub struct ImageCollectionOptions {
     pub db_path: String,
     pub candidate_buffer: usize,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Duel {
+    pub home: String,
+    pub home_id: u32,
+    pub guest: String,
+    pub guest_id: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub struct Match {
+    pub home_id: u32,
+    pub guest_id: u32,
+    pub won: f32,
+}
+
 impl ImageCollection {
-    pub async fn new(options: &Options) -> Result<ImageCollection> {
+    pub async fn new(options: &ImageCollectionOptions) -> Result<ImageCollection> {
         let db_options =
             sqlx::sqlite::SqliteConnectOptions::from_str(&options.db_path)?.create_if_missing(true);
 
@@ -53,12 +68,17 @@ impl ImageCollection {
 
         tokio::spawn(async move {
             let now = std::time::Instant::now();
-            let _ = insert_match(&db, &m).await;
-            let _ = update_rating(&db, &m).await;
-            println!(
-                "Insert update done in {} microseconds",
-                now.elapsed().as_micros()
-            );
+            match insert_match(&db, &m).await {
+                Err(err) => error!("Error during inserting match {}", err),
+                Ok(_) => match update_rating(&db, &m).await {
+                    Err(err) => error!("Error during updating ratings {}", err),
+                    Ok(_) => info!(
+                        "Insert update done in {} microseconds",
+                        now.elapsed().as_micros()
+                    )
+                },
+            };
+            
 
             if can_queue.len() < (can_queue.capacity() / 2) {
                 if db_update_in_progress
@@ -70,7 +90,7 @@ impl ImageCollection {
                     )
                     .is_ok()
                 {
-                    println!("refresh duel queue");
+                    info!("refresh duel queue");
                     let now = std::time::Instant::now();
                     match calculate_new_matches(&db, can_queue.capacity()).await {
                         Ok(new_duels) => {
@@ -81,7 +101,7 @@ impl ImageCollection {
                         }
                         _ => {}
                     }
-                    println!(
+                    info!(
                         "refresh duel queue done in {} microseconds. Current size: {}",
                         now.elapsed().as_micros(),
                         can_queue.len()
@@ -97,7 +117,7 @@ impl ImageCollection {
         match self.candidates.pop() {
             Some(duel) => return Ok(duel),
             None => {
-                println!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
+                warn!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
                 //todo: use a cell on candidate_queue to increase its capacity
                 // calculate new matches full on it
                 let duels = calculate_new_matches(&self.db, 1).await?;
@@ -110,21 +130,6 @@ impl ImageCollection {
             }
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Duel {
-    pub home: String,
-    pub home_id: u32,
-    pub guest: String,
-    pub guest_id: u32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy)]
-pub struct Match {
-    pub home_id: u32,
-    pub guest_id: u32,
-    pub won: f32,
 }
 
 async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
@@ -197,13 +202,8 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         rating: rt_guest.rating as f64,
         time: 0,
     };
-    let now = std::time::Instant::now();
     let rth_new = ranking::new_rating(&rth, &rtg, m.won as f64, 0, 0_f64);
     let rtg_new = ranking::new_rating(&rtg, &rth, 1_f64 - m.won as f64, 0, 0_f64);
-    println!(
-        "glicko computation done in {} microseconds",
-        now.elapsed().as_micros()
-    );
     sqlx::query!(
         "UPDATE players SET rating = ?, deviation = ? WHERE id = ?",
         rth_new.rating,

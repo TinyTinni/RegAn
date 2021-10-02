@@ -6,7 +6,7 @@ mod image_collection;
 use actix_files::NamedFile;
 use actix_web::{error, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
-use image_collection::{ImageCollection, Match, Options};
+use image_collection::{ImageCollection, Match, ImageCollectionOptions};
 
 #[get("/")]
 async fn index() -> impl Responder {
@@ -27,11 +27,11 @@ async fn return_new_match(
     match collection.get_ref().new_duel().await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);
-            println!("get matches: {} microseconds", now.elapsed().as_micros());
+            info!("get matches: {} microseconds", now.elapsed().as_micros());
             return Ok(payload);
         }
         Err(err) => {
-            println!("get matches: {} microseconds", now.elapsed().as_micros());
+            info!("get matches: {} microseconds", now.elapsed().as_micros());
             return Err(error::ErrorBadRequest(err.to_string()));
         }
     }
@@ -46,11 +46,11 @@ async fn on_new_score(
     match collection.get_ref().insert_match(&m).await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);
-            println!("post scores: {} microseconds", now.elapsed().as_micros());
+            info!("post scores: {} microseconds", now.elapsed().as_micros());
             return Ok(payload);
         }
         Err(err) => {
-            println!("get matches: {} microseconds", now.elapsed().as_micros());
+            info!("get matches: {} microseconds", now.elapsed().as_micros());
             return Err(error::ErrorBadRequest(err.to_string()));
         }
     }
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
         //.filter_level(log::LevelFilter::Info)
         .init();
 
-    let options = Options {
+    let options = ImageCollectionOptions {
         db_path: "sqlite://test.db".to_owned(),
         candidate_buffer: 5,
     };
