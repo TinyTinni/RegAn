@@ -23,9 +23,17 @@ async fn return_image(req: HttpRequest) -> impl Responder {
 async fn return_new_match(
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
+    let now = std::time::Instant::now();
     match collection.get_ref().new_duel().await {
-        Ok(new_duel) => return Ok(HttpResponse::Ok().json(new_duel)),
-        Err(err) => return Err(error::ErrorBadRequest(err.to_string())),
+        Ok(new_duel) => {
+            let payload = HttpResponse::Ok().json(new_duel);
+            println!("get matches: {} microseconds", now.elapsed().as_micros());
+            return Ok(payload);
+        }
+        Err(err) => {
+            println!("get matches: {} microseconds", now.elapsed().as_micros());
+            return Err(error::ErrorBadRequest(err.to_string()));
+        }
     }
 }
 
@@ -34,9 +42,17 @@ async fn on_new_score(
     m: actix_web::web::Json<Match>,
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
+    let now = std::time::Instant::now();
     match collection.get_ref().insert_match(&m).await {
-        Ok(new_duel) => return Ok(HttpResponse::Ok().json(new_duel)),
-        Err(err) => return Err(error::ErrorBadRequest(err.to_string())),
+        Ok(new_duel) => {
+            let payload = HttpResponse::Ok().json(new_duel);
+            println!("post scores: {} microseconds", now.elapsed().as_micros());
+            return Ok(payload);
+        }
+        Err(err) => {
+            println!("get matches: {} microseconds", now.elapsed().as_micros());
+            return Err(error::ErrorBadRequest(err.to_string()));
+        }
     }
 }
 
@@ -48,7 +64,7 @@ async fn main() -> Result<()> {
 
     let options = Options {
         db_path: "sqlite://test.db".to_owned(),
-        candidate_buffer: 20,
+        candidate_buffer: 5,
     };
     let img_col = ImageCollection::new(&options).await?;
 
@@ -64,7 +80,7 @@ async fn main() -> Result<()> {
     .keep_alive(90)
     .bind(addr)?;
 
-    info!("Start Server on {}.", addr);
+    println!("Start Server on {}.", addr);
     server.run().await?;
     Ok(())
 }

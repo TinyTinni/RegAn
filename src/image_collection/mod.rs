@@ -5,18 +5,17 @@ extern crate tokio_stream;
 
 mod ranking;
 
-use std::str::FromStr;
 use anyhow::Result;
 use crossbeam::queue::ArrayQueue;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::str::FromStr;
 use tokio_stream::StreamExt;
-
-const QUEUE_LENGTH : usize = 20;
 
 #[derive(Clone)]
 pub struct ImageCollection {
     candidates: std::sync::Arc<ArrayQueue<Duel>>,
+    db_update_in_progress: std::sync::Arc<std::sync::atomic::AtomicBool>,
     db: SqlitePool,
 }
 
@@ -34,31 +33,60 @@ impl ImageCollection {
         sqlx::query_file!("./schema.sql").execute(&db).await?;
         check_db_integrity(&db).await?;
         let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(options.candidate_buffer));
-        let new_duels = calculate_new_matches(&db, QUEUE_LENGTH).await?;
+        let new_duels = calculate_new_matches(&db, candidates.capacity()).await?;
         for nd in new_duels.into_iter() {
             let _ = candidates.push(nd);
         }
-        Ok(ImageCollection { candidates, db })
+        let db_update_in_progress = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        Ok(ImageCollection {
+            candidates,
+            db,
+            db_update_in_progress,
+        })
     }
 
     pub async fn insert_match(&self, m: &Match) -> Result<()> {
         let db = self.db.clone();
         let can_queue = self.candidates.clone();
         let m = m.clone();
+        let db_update_in_progress = self.db_update_in_progress.clone();
 
         tokio::spawn(async move {
+            let now = std::time::Instant::now();
             let _ = insert_match(&db, &m).await;
             let _ = update_rating(&db, &m).await;
+            println!(
+                "Insert update done in {} microseconds",
+                now.elapsed().as_micros()
+            );
 
-            if can_queue.len() < (QUEUE_LENGTH / 2) {
-                match calculate_new_matches(&db, QUEUE_LENGTH).await {
-                    Ok(new_duels) => {
-                        // ignore if queue is full
-                        for nd in new_duels.into_iter().skip(QUEUE_LENGTH-can_queue.len()){
-                            let _ = can_queue.push(nd); // ignore output
+            if can_queue.len() < (can_queue.capacity() / 2) {
+                if db_update_in_progress
+                    .compare_exchange(
+                        false,
+                        true,
+                        std::sync::atomic::Ordering::Acquire,
+                        std::sync::atomic::Ordering::Relaxed,
+                    )
+                    .is_ok()
+                {
+                    println!("refresh duel queue");
+                    let now = std::time::Instant::now();
+                    match calculate_new_matches(&db, can_queue.capacity()).await {
+                        Ok(new_duels) => {
+                            // ignore if queue is full
+                            for nd in new_duels.into_iter().skip(can_queue.len()) {
+                                let _ = can_queue.push(nd); // ignore output
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
+                    println!(
+                        "refresh duel queue done in {} microseconds. Current size: {}",
+                        now.elapsed().as_micros(),
+                        can_queue.len()
+                    );
+                    db_update_in_progress.store(false, std::sync::atomic::Ordering::Release);
                 }
             }
         });
@@ -68,7 +96,18 @@ impl ImageCollection {
     pub async fn new_duel(&self) -> Result<Duel> {
         match self.candidates.pop() {
             Some(duel) => return Ok(duel),
-            None => Err(anyhow::Error::msg("No Candidates found.".to_owned())), //TODO try to compute new ones
+            None => {
+                println!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
+                //todo: use a cell on candidate_queue to increase its capacity
+                // calculate new matches full on it
+                let duels = calculate_new_matches(&self.db, 1).await?;
+                if !duels.is_empty() {
+                    return Ok(duels.into_iter().nth(0).unwrap());
+                } else {
+                    return Err(anyhow::Error::msg("No Candidates found.".to_owned()));
+                    //TODO try to compute new ones
+                }
+            }
         }
     }
 }
@@ -88,7 +127,7 @@ pub struct Match {
     pub won: f32,
 }
 
-pub async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
+async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
     let path = "images";
     let db_files = sqlx::query!("SELECT name FROM players")
         .fetch_all(db)
@@ -132,19 +171,20 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         deviation: f32,
     }
 
+    let mut tx = db.begin().await?;
     let rt_home = sqlx::query_as!(
         Rating,
         "SELECT rating, deviation FROM players WHERE id = ?",
         m.home_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut tx)
     .await?;
     let rt_guest = sqlx::query_as!(
         Rating,
         "SELECT rating, deviation FROM players WHERE id = ?",
         m.guest_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut tx)
     .await?;
 
     let rth = ranking::Rating {
@@ -157,15 +197,20 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         rating: rt_guest.rating as f64,
         time: 0,
     };
+    let now = std::time::Instant::now();
     let rth_new = ranking::new_rating(&rth, &rtg, m.won as f64, 0, 0_f64);
     let rtg_new = ranking::new_rating(&rtg, &rth, 1_f64 - m.won as f64, 0, 0_f64);
+    println!(
+        "glicko computation done in {} microseconds",
+        now.elapsed().as_micros()
+    );
     sqlx::query!(
         "UPDATE players SET rating = ?, deviation = ? WHERE id = ?",
         rth_new.rating,
         rth_new.deviation,
         m.home_id
     )
-    .execute(db)
+    .execute(&mut tx)
     .await?;
     sqlx::query!(
         "UPDATE players SET rating = ?, deviation = ? WHERE id = ?",
@@ -173,8 +218,10 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         rtg_new.deviation,
         m.guest_id
     )
-    .execute(db)
+    .execute(&mut tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -190,19 +237,6 @@ async fn insert_match(db: &SqlitePool, m: &Match) -> Result<()> {
     .await?;
     Ok(())
 }
-
-// fn random_file() -> Result<String> {
-//     let dir = std::fs::read_dir("./test_images").expect("Could not find image directory.");
-//     let mut rng = rand::thread_rng();
-//     //todo: get rid of unwrap
-//     let fname = dir
-//         .choose(&mut rng)
-//         .unwrap()?
-//         .file_name()
-//         .into_string()
-//         .unwrap();
-//     Ok(fname)
-// }
 
 async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<Duel>> {
     struct Player {
