@@ -3,7 +3,7 @@ extern crate sqlx;
 extern crate tokio;
 extern crate tokio_stream;
 
-mod ranking;
+mod glicko;
 
 use anyhow::Result;
 use crossbeam::queue::ArrayQueue;
@@ -14,16 +14,28 @@ use tokio_stream::StreamExt;
 
 #[derive(Clone)]
 pub struct ImageCollection {
+    /// buffers pre-computed matches
     candidates: std::sync::Arc<ArrayQueue<Duel>>,
+    /// is true, when a thread is already in process in filling the queue up
     db_update_in_progress: std::sync::Arc<std::sync::atomic::AtomicBool>,
+
     db: SqlitePool,
 }
 
+/// Options to create an ImageCollection Type
 pub struct ImageCollectionOptions {
+    /// path to the sqlite db
     pub db_path: String,
+    /// size of the pre-computation buffer
+    /// the buffer holds possible candidates in a prio queue.
+    /// The best matchmakings gets decided at some point
+    /// and is not getting updated until the queue gets filled again,
+    /// leading to a possible worse machtmaking with a too huge caching.
+    /// It is used to reduce the queries to the db.
     pub candidate_buffer: usize,
 }
 
+/// a new match which needs to be played
 #[derive(Serialize, Deserialize)]
 pub struct Duel {
     pub home: String,
@@ -32,10 +44,13 @@ pub struct Duel {
     pub guest_id: u32,
 }
 
+/// a played match with the given result
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct Match {
     pub home_id: u32,
     pub guest_id: u32,
+    /// 0 if home lost, 0.5 on draw, 1 if home won
+    /// todo: make an enum out of it
     pub won: f32,
 }
 
@@ -60,6 +75,7 @@ impl ImageCollection {
         })
     }
 
+    /// informs the system about the result of a played match
     pub async fn insert_match(&self, m: &Match) -> Result<()> {
         let db = self.db.clone();
         let can_queue = self.candidates.clone();
@@ -68,17 +84,13 @@ impl ImageCollection {
 
         tokio::spawn(async move {
             let now = std::time::Instant::now();
-            match insert_match(&db, &m).await {
-                Err(err) => error!("Error during inserting match {}", err),
-                Ok(_) => match update_rating(&db, &m).await {
-                    Err(err) => error!("Error during updating ratings {}", err),
-                    Ok(_) => info!(
-                        "Insert update done in {} microseconds",
-                        now.elapsed().as_micros()
-                    )
-                },
+            match update_rating(&db, &m).await {
+                Err(err) => error!("Error during updating ratings {}", err),
+                Ok(_) => println!(
+                    "Insert update done in {} microseconds",
+                    now.elapsed().as_micros()
+                ),
             };
-            
 
             if can_queue.len() < (can_queue.capacity() / 2) {
                 if db_update_in_progress
@@ -113,6 +125,7 @@ impl ImageCollection {
         Ok(())
     }
 
+    /// requests a new duel which needs to be played
     pub async fn new_duel(&self) -> Result<Duel> {
         match self.candidates.pop() {
             Some(duel) => return Ok(duel),
@@ -173,13 +186,16 @@ async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
+/// updates rating based on a played match and also inserts the new match
 async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
+    let mut tx = db.begin().await?;
+
+    // update the rating
     struct Rating {
         rating: f32,
         deviation: f32,
     }
 
-    let mut tx = db.begin().await?;
     let rt_home = sqlx::query_as!(
         Rating,
         "SELECT rating, deviation FROM players WHERE id = ?",
@@ -195,18 +211,18 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     .fetch_one(&mut tx)
     .await?;
 
-    let rth = ranking::Rating {
+    let rth = glicko::Rating {
         deviation: rt_home.deviation as f64,
         rating: rt_home.rating as f64,
         time: 0,
     };
-    let rtg = ranking::Rating {
+    let rtg = glicko::Rating {
         deviation: rt_guest.deviation as f64,
         rating: rt_guest.rating as f64,
         time: 0,
     };
-    let rth_new = ranking::new_rating(&rth, &rtg, m.won as f64, 0, 0_f64);
-    let rtg_new = ranking::new_rating(&rtg, &rth, 1_f64 - m.won as f64, 0, 0_f64);
+    let rth_new = glicko::new_rating(&rth, &rtg, m.won as f64, 0, 0_f64);
+    let rtg_new = glicko::new_rating(&rtg, &rth, 1_f64 - m.won as f64, 0, 0_f64);
     sqlx::query!(
         "UPDATE players SET rating = ?, deviation = ? WHERE id = ?",
         rth_new.rating,
@@ -224,20 +240,18 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     .execute(&mut tx)
     .await?;
 
-    tx.commit().await?;
-
-    Ok(())
-}
-
-async fn insert_match(db: &SqlitePool, m: &Match) -> Result<()> {
+    // insert the new match
     sqlx::query!(
         "INSERT INTO matches (home_players_id, guest_players_id, result, timestamp) VALUES (?, ?, ?, strftime('%Y-%m-%d %H %M','now'))",
         m.home_id,
         m.guest_id,
         m.won
     )
-    .execute(db)
+    .execute(&mut tx)
     .await?;
+
+    tx.commit().await?;
+
     Ok(())
 }
 
