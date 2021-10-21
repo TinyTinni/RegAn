@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
 
     let options = ImageCollectionOptions {
         db_path: "sqlite://test.db".to_owned(),
-        candidate_buffer: 5,
+        candidate_buffer: 20,
     };
     let img_col = ImageCollection::new(&options).await?;
 

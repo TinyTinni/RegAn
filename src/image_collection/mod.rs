@@ -86,7 +86,7 @@ impl ImageCollection {
             let now = std::time::Instant::now();
             match update_rating(&db, &m).await {
                 Err(err) => error!("Error during updating ratings {}", err),
-                Ok(_) => println!(
+                Ok(_) => info!(
                     "Insert update done in {} microseconds",
                     now.elapsed().as_micros()
                 ),
@@ -278,29 +278,59 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_ids);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
-        // todo: random pick normal distributed around home_id.rating instead of unknown distribution
+        // matchmaking
+        // the current idea is to select one with the current constraints:
+        // - should be in the range of the players "limit"
+        // - should also be a player which has not played often
+        // hopium says that this would lessen the requirements of #matches
+        // for all the players and that the deviation reduction
+        // is more uniformely distributred.
+        // But also, that, when the deviation is low, the deviations
+        // do not differ too much to have a better resolution of the ranking
+        // todo: make some smulations of different matchmakings?
+        let upper = home_id.rating + 1.96 * home_id.deviation;
+        let lower = home_id.rating - 1.96 * home_id.deviation;
+        let limit = 2 * n_matches;
         match sqlx::query_as!(
             Player,
             "SELECT id, rating, deviation, name FROM players 
             WHERE id IN (SELECT id FROM players 
                 WHERE id != $1 AND
-                rating <= $2 + 1.96 * $3 AND
-                rating >= $2 - 1.96 * $3
-                ORDER BY RANDOM() 
-                LIMIT 1)",
+                rating <= $2 AND
+                rating >= $3
+                ORDER BY deviation DESC
+                LIMIT $4)",
             home_id.id,
-            home_id.rating,
-            home_id.deviation
+            upper,
+            lower,
+            limit
         )
-        .fetch_one(db)
+        .fetch_all(db)
         .await
         {
-            Ok(guest_id) => result.push(Duel {
-                home: home_id.name,
-                home_id: home_id.id as u32,
-                guest: guest_id.name,
-                guest_id: guest_id.id as u32,
-            }),
+            // search for candidates which are not already in the buffer as guests
+            // players in the queue have already an updated deviation and should
+            // not occur here, unless their deviation is already high.
+            // If their deviation is high, they should get selected multiple times
+            // in order to lower their deviation fast
+            Ok(mut guest_ids) => {
+                guest_ids.retain(|x| {
+                    !result
+                        .iter()
+                        .map(|y: &Duel| i64::from(y.guest_id))
+                        .any(|y| y == x.id)
+                });
+                // if found, insert them
+                match guest_ids.into_iter().next() {
+                    Some(guest_id) => result.push(Duel {
+                        home: home_id.name,
+                        home_id: home_id.id as u32,
+                        guest: guest_id.name,
+                        guest_id: guest_id.id as u32,
+                    }),
+                    _ => {}
+                }
+            }
             _ => {}
         };
     }
