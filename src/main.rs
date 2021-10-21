@@ -37,7 +37,7 @@ async fn return_new_match(
     }
 }
 
-#[post("/scores")]
+#[post("/played_match")]
 async fn on_new_score(
     m: actix_web::web::Json<Match>,
     collection: web::Data<ImageCollection>,
@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
         .init();
 
     let options = ImageCollectionOptions {
-        db_path: "sqlite://test.db".to_owned(),
+        db_path: "sqlite://:memory:".to_owned(),
         candidate_buffer: 20,
     };
     let img_col = ImageCollection::new(&options).await?;

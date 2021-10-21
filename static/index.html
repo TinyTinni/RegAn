@@ -115,7 +115,7 @@
 
       // send message and load new match
       loadNewMatch()
-      fetch('/scores', { method: 'POST', body: JSON.stringify(match), headers: { 'Content-Type': 'application/json' } })
+      fetch('/played_match', { method: 'POST', body: JSON.stringify(match), headers: { 'Content-Type': 'application/json' } })
 
     }
   </script>
