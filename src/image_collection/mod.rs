@@ -1,5 +1,4 @@
 extern crate crossbeam;
-extern crate rand_distr;
 extern crate sqlx;
 extern crate tokio;
 extern crate tokio_stream;
@@ -8,7 +7,6 @@ mod glicko;
 
 use anyhow::Result;
 use crossbeam::queue::ArrayQueue;
-use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -280,20 +278,19 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_ids);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
-        // randomly select a candidate from a normal distribution
-        let normal_distr = Normal::new(home_id.rating, home_id.deviation).unwrap();
-        let next_nearest_rating = normal_distr.sample(&mut rand::thread_rng()).abs();
-
-        // select a candidate nearest to the randomly selected rating
+        // todo: random pick normal distributed around home_id.rating instead of unknown distribution
         match sqlx::query_as!(
             Player,
             "SELECT id, rating, deviation, name FROM players 
             WHERE id IN (SELECT id FROM players 
-                WHERE id != $1 
-                ORDER BY ABS(rating - $2) ASC 
+                WHERE id != $1 AND
+                rating <= $2 + 1.96 * $3 AND
+                rating >= $2 - 1.96 * $3
+                ORDER BY RANDOM() 
                 LIMIT 1)",
             home_id.id,
-            next_nearest_rating
+            home_id.rating,
+            home_id.deviation
         )
         .fetch_one(db)
         .await
