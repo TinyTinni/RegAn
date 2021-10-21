@@ -88,7 +88,7 @@ impl ImageCollection {
             let now = std::time::Instant::now();
             match update_rating(&db, &m).await {
                 Err(err) => error!("Error during updating ratings {}", err),
-                Ok(_) => info!(
+                Ok(_) => println!(
                     "Insert update done in {} microseconds",
                     now.elapsed().as_micros()
                 ),
