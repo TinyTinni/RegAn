@@ -3,20 +3,13 @@ extern crate log;
 
 mod image_collection;
 
-use actix_files::NamedFile;
-use actix_web::{error, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
 use image_collection::{ImageCollection, Match, ImageCollectionOptions};
 
 #[get("/")]
 async fn index() -> impl Responder {
-    NamedFile::open("static/index.html")
-}
-
-#[get("/images/{filename:.*}")]
-async fn return_image(req: HttpRequest) -> impl Responder {
-    let path = req.match_info().query("filename");
-    NamedFile::open(format!("images/{}", path))
+    actix_files::NamedFile::open("static/index.html")
 }
 
 #[get("/matches")]
@@ -74,8 +67,8 @@ async fn main() -> Result<()> {
             .app_data(actix_web::web::Data::new(img_col.clone()))
             .service(index)
             .service(return_new_match)
-            .service(return_image)
             .service(on_new_score)
+            .service(actix_files::Files::new("/images", "./images"))
     })
     .keep_alive(90)
     .bind(addr)?;
