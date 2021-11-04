@@ -3,50 +3,49 @@ extern crate log;
 
 mod image_collection;
 
-use actix_files::NamedFile;
-use actix_web::{error, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
-use sqlx::SqlitePool;
-use image_collection::{calculate_new_match, check_db_integrity, insert_match, update_rating, Match};
+use image_collection::{ImageCollection, Match, ImageCollectionOptions};
 
 #[get("/")]
 async fn index() -> impl Responder {
-    NamedFile::open("static/index.html")
-}
-
-#[get("/images/{filename:.*}")]
-async fn return_image(req: HttpRequest) -> impl Responder {
-    let path = req.match_info().query("filename");
-    NamedFile::open(format!("images/{}", path))
+    actix_files::NamedFile::open("static/index.html")
 }
 
 #[get("/matches")]
-async fn return_new_match(db_pool: web::Data<SqlitePool>) -> actix_web::Result<HttpResponse> {
-    match calculate_new_match(&db_pool.get_ref()).await {
-        Ok(new_duel) => return Ok(HttpResponse::Ok().json(new_duel)),
-        Err(err) => return Err(error::ErrorBadRequest(err.to_string())),
+async fn return_new_match(
+    collection: web::Data<ImageCollection>,
+) -> actix_web::Result<HttpResponse> {
+    let now = std::time::Instant::now();
+    match collection.get_ref().new_duel().await {
+        Ok(new_duel) => {
+            let payload = HttpResponse::Ok().json(new_duel);
+            info!("get matches: {} microseconds", now.elapsed().as_micros());
+            return Ok(payload);
+        }
+        Err(err) => {
+            info!("get matches: {} microseconds", now.elapsed().as_micros());
+            return Err(error::ErrorBadRequest(err.to_string()));
+        }
     }
 }
 
-#[post("/scores")]
+#[post("/played_match")]
 async fn on_new_score(
     m: actix_web::web::Json<Match>,
-    db_pool: web::Data<SqlitePool>,
+    collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
-
     let now = std::time::Instant::now();
-    let insert_and_create = async {
-        let db = db_pool.get_ref();
-        insert_match(&db, &m).await?;
-        update_rating(&db, &m).await?;
-        calculate_new_match(&db).await
-    }.await;
-    let time_ealpsed = std::time::Instant::now() - now;
-    info!("Request computation took {}ms", time_ealpsed.as_millis());
-
-    match insert_and_create {
-        Ok(new_duel) => return Ok(HttpResponse::Ok().json(new_duel)),
-        Err(err) => return Err(error::ErrorBadRequest(err.to_string())),
+    match collection.get_ref().insert_match(&m).await {
+        Ok(new_duel) => {
+            let payload = HttpResponse::Ok().json(new_duel);
+            info!("post scores: {} microseconds", now.elapsed().as_micros());
+            return Ok(payload);
+        }
+        Err(err) => {
+            info!("get matches: {} microseconds", now.elapsed().as_micros());
+            return Err(error::ErrorBadRequest(err.to_string()));
+        }
     }
 }
 
@@ -56,27 +55,25 @@ async fn main() -> Result<()> {
         //.filter_level(log::LevelFilter::Info)
         .init();
 
-    let db_name = "sqlite://test.db";
-
-    info!("Connect to database: {}", db_name);
-    let db_pool = SqlitePool::connect(&db_name).await?;
-    sqlx::query_file!("./schema.sql").execute(&db_pool).await?;
-    check_db_integrity(&db_pool).await?;
+    let options = ImageCollectionOptions {
+        db_path: "sqlite://:memory:".to_owned(),
+        candidate_buffer: 20,
+    };
+    let img_col = ImageCollection::new(&options).await?;
 
     let addr = "127.0.0.1:8000";
     let server = HttpServer::new(move || {
         App::new()
-            //.wrap(actix_web::middleware::Compress::default())
-            .app_data(actix_web::web::Data::new(db_pool.clone()))
+            .app_data(actix_web::web::Data::new(img_col.clone()))
             .service(index)
             .service(return_new_match)
-            .service(return_image)
             .service(on_new_score)
+            .service(actix_files::Files::new("/images", "./images"))
     })
     .keep_alive(90)
     .bind(addr)?;
 
-    info!("Start Server on {}.", addr);
+    println!("Start Server on {}.", addr);
     server.run().await?;
     Ok(())
 }
