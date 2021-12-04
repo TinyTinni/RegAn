@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate log;
 extern crate crossbeam;
 extern crate sqlx;
 extern crate tokio;
@@ -75,6 +77,62 @@ impl ImageCollection {
         })
     }
 
+    pub async fn to_csv(&self) -> Result<()> {
+        struct Player {
+            name: String,
+            rating: f32,
+            deviation: f32,
+        };
+
+        let players = sqlx::query_as!(Player, "SELECT name, rating, deviation FROM players ORDER BY rating")
+            .fetch_all(&self.db)
+            .await?;
+
+        for p in players {
+            println! {"{} rat {} dev {}", p.name, p.rating, p.deviation};
+        }
+
+        Ok(())
+    }
+
+    pub async fn new_pre_configured(num: u32) -> Result<ImageCollection> {
+        let db_opions = sqlx::sqlite::SqliteConnectOptions::from_str(":memory:")?
+            .shared_cache(true)
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .busy_timeout(std::time::Duration::from_secs(3000));
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(db_opions)
+            .await?;
+        sqlx::query("PRAGMA busy_timeout = 3000")
+            .execute(&db)
+            .await?;
+
+        let db_update_in_progress = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(20));
+        sqlx::query_file!("./schema.sql").execute(&db).await?;
+
+        let mut tx = db.begin().await?;
+        for i in 0..num {
+            sqlx::query!(
+                "
+                INSERT INTO players (name, rating, deviation) 
+                VALUES (?, 2200, 350)
+                ",
+                i
+            )
+            .execute(&mut tx)
+            .await?;
+        }
+        tx.commit().await?;
+
+        Ok(ImageCollection {
+            candidates,
+            db,
+            db_update_in_progress,
+        })
+    }
+
     /// informs the system about the result of a played match
     pub async fn insert_match(&self, m: &Match) -> Result<()> {
         let db = self.db.clone();
@@ -133,7 +191,7 @@ impl ImageCollection {
                 warn!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
                 //todo: use a cell on candidate_queue to increase its capacity
                 // calculate new matches full on it
-                let duels = calculate_new_matches(&self.db, 1).await?;
+                let duels = calculate_new_matches(&self.db, 5).await?;
                 if !duels.is_empty() {
                     return Ok(duels.into_iter().nth(0).unwrap());
                 } else {
@@ -314,21 +372,32 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
             // If their deviation is high, they should get selected multiple times
             // in order to lower their deviation fast
             Ok(mut guest_ids) => {
-                guest_ids.retain(|x| {
-                    !result
-                        .iter()
-                        .map(|y: &Duel| i64::from(y.guest_id))
-                        .any(|y| y == x.id)
-                });
-                // if found, insert them
-                match guest_ids.into_iter().next() {
-                    Some(guest_id) => result.push(Duel {
+                if guest_ids.len() == 0 {
+                    let guest_id = sqlx::query_as!(Player, "SELECT id, rating, deviation, name FROM players
+                    WHERE id != $1 ORDER BY RANDOM() LIMIT 1", home_id.id).fetch_one(db).await?;
+                    result.push(Duel {
                         home: home_id.name,
                         home_id: home_id.id as u32,
                         guest: guest_id.name,
                         guest_id: guest_id.id as u32,
-                    }),
-                    _ => {}
+                    })
+                } else {
+                    guest_ids.retain(|x| {
+                        !result
+                            .iter()
+                            .map(|y: &Duel| i64::from(y.guest_id))
+                            .any(|y| y == x.id)
+                    });
+                    // if found, insert them
+                    match guest_ids.into_iter().next() {
+                        Some(guest_id) => result.push(Duel {
+                            home: home_id.name,
+                            home_id: home_id.id as u32,
+                            guest: guest_id.name,
+                            guest_id: guest_id.id as u32,
+                        }),
+                        _ => {}
+                    }
                 }
             }
             _ => {}

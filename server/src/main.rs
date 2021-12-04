@@ -1,8 +1,6 @@
 #[macro_use]
 extern crate log;
 
-mod image_collection;
-
 use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
 use image_collection::{ImageCollection, Match, ImageCollectionOptions};
@@ -56,7 +54,7 @@ async fn main() -> Result<()> {
         .init();
 
     let options = ImageCollectionOptions {
-        db_path: "sqlite://:memory:".to_owned(),
+        db_path: "sqlite://test.db".to_owned(),
         candidate_buffer: 20,
     };
     let img_col = ImageCollection::new(&options).await?;
