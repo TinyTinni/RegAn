@@ -9,6 +9,7 @@ mod glicko;
 
 use anyhow::Result;
 use crossbeam::queue::ArrayQueue;
+use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -58,10 +59,17 @@ pub struct Match {
 
 impl ImageCollection {
     pub async fn new(options: &ImageCollectionOptions) -> Result<ImageCollection> {
-        let db_options =
-            sqlx::sqlite::SqliteConnectOptions::from_str(&options.db_path)?.create_if_missing(true);
+        let db_opions = sqlx::sqlite::SqliteConnectOptions::from_str(&options.db_path)?
+            .shared_cache(false)
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .busy_timeout(std::time::Duration::from_secs(3000))
+            .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive)
+            .create_if_missing(true);
 
-        let db = SqlitePool::connect_with(db_options).await?;
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(db_opions)
+            .await?;
         sqlx::query_file!("./schema.sql").execute(&db).await?;
         check_db_integrity(&db).await?;
         let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(options.candidate_buffer));
@@ -84,28 +92,37 @@ impl ImageCollection {
             deviation: f32,
         };
 
-        let players = sqlx::query_as!(Player, "SELECT name, rating, deviation FROM players ORDER BY rating")
-            .fetch_all(&self.db)
-            .await?;
+        let players = sqlx::query_as!(
+            Player,
+            "SELECT name, rating, deviation FROM players ORDER BY rating"
+        )
+        .fetch_all(&self.db)
+        .await?;
 
-        for p in players {
-            println! {"{} rat {} dev {}", p.name, p.rating, p.deviation};
+        for p  in players.iter() {
+            println! {"{} rat {} dev {}", &p.name, &p.rating, &p.deviation};
         }
+        let mut sqre : f32 = 0.;
+        for i in 0..players.len(){
+            sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)*(players[i].name.parse::<f32>().unwrap() - i as f32);
+        }
+        sqre /= players.len() as f32;
+        sqre = sqre.sqrt();
+        println!("MSRE: {}", sqre);
 
         Ok(())
     }
 
     pub async fn new_pre_configured(num: u32) -> Result<ImageCollection> {
         let db_opions = sqlx::sqlite::SqliteConnectOptions::from_str(":memory:")?
-            .shared_cache(true)
+            .shared_cache(false)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-            .busy_timeout(std::time::Duration::from_secs(3000));
+            .busy_timeout(std::time::Duration::from_secs(3000))
+            .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive);
+
         let db = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(db_opions)
-            .await?;
-        sqlx::query("PRAGMA busy_timeout = 3000")
-            .execute(&db)
             .await?;
 
         let db_update_in_progress = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -321,7 +338,7 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
         name: String,
     }
     let n_matches = n_matches as u32;
-    let home_ids = sqlx::query_as!(
+    let home_players = sqlx::query_as!(
         Player,
         "SELECT id, rating, deviation AS deviation, name FROM players WHERE 
              id IN 
@@ -333,7 +350,8 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     .fetch_all(db)
     .await?;
 
-    let mut stream = tokio_stream::iter(home_ids);
+    let home_ids = home_players.iter().map(|x| x.id).collect::<Vec<_>>();
+    let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
         // matchmaking
@@ -349,6 +367,16 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
         let upper = home_id.rating + 1.96 * home_id.deviation;
         let lower = home_id.rating - 1.96 * home_id.deviation;
         let limit = 2 * n_matches;
+
+        let random_id = sqlx::query_as!(
+            Player,
+            "SELECT id, rating, deviation, name FROM players
+        WHERE id != $1 ORDER BY RANDOM() LIMIT 1",
+            home_id.id
+        )
+        .fetch_one(db)
+        .await?;
+
         match sqlx::query_as!(
             Player,
             "SELECT id, rating, deviation, name FROM players 
@@ -371,32 +399,41 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
             // not occur here, unless their deviation is already high.
             // If their deviation is high, they should get selected multiple times
             // in order to lower their deviation fast
-            Ok(mut guest_ids) => {
-                if guest_ids.len() == 0 {
-                    let guest_id = sqlx::query_as!(Player, "SELECT id, rating, deviation, name FROM players
-                    WHERE id != $1 ORDER BY RANDOM() LIMIT 1", home_id.id).fetch_one(db).await?;
+            Ok(guest_ids) => {
+                if guest_ids.len() == 0 {   
                     result.push(Duel {
                         home: home_id.name,
                         home_id: home_id.id as u32,
-                        guest: guest_id.name,
-                        guest_id: guest_id.id as u32,
+                        guest: random_id.name,
+                        guest_id: random_id.id as u32,
                     })
                 } else {
-                    guest_ids.retain(|x| {
-                        !result
-                            .iter()
-                            .map(|y: &Duel| i64::from(y.guest_id))
-                            .any(|y| y == x.id)
-                    });
+                    let candidates = guest_ids
+                        .into_iter()
+                        .filter(|p| {
+                            home_ids.contains(&p.id)
+                                || result
+                                    .iter()
+                                    .map(|y: &Duel| i64::from(y.guest_id) == p.id)
+                                    .any(|y| y)                                    
+                        }).collect::<Vec<_>>();
                     // if found, insert them
-                    match guest_ids.into_iter().next() {
+                    let mut rng = rand::thread_rng();
+                    match candidates.choose(&mut rng) {
                         Some(guest_id) => result.push(Duel {
                             home: home_id.name,
                             home_id: home_id.id as u32,
-                            guest: guest_id.name,
+                            guest: guest_id.name.clone(),
                             guest_id: guest_id.id as u32,
                         }),
-                        _ => {}
+                        None => {
+                            result.push(Duel {
+                                home: home_id.name,
+                                home_id: home_id.id as u32,
+                                guest: random_id.name,
+                                guest_id: random_id.id as u32,
+                            })
+                        }
                     }
                 }
             }

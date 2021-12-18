@@ -1,5 +1,3 @@
-#[macro_use]
-extern crate sqlx;
 use anyhow::Result;
 use image_collection::{ImageCollection, ImageCollectionOptions, Match};
 
@@ -13,7 +11,7 @@ async fn main() -> Result<()> {
     let collection = ImageCollection::new_pre_configured(500).await?;
 
     let runs = 10_000;
-
+       let start = std::time::Instant::now();
     for _i in 0..runs {
         let new_duel = collection.new_duel().await?;
         let home_id = new_duel.home_id;
@@ -33,7 +31,13 @@ async fn main() -> Result<()> {
         collection.insert_match(&m).await?;
     }
 
+    let runs_per_sec = runs as f64 / start.elapsed().as_secs_f64();
     collection.to_csv().await?;
+    
+    println!("runs per sec: {}", runs_per_sec);
+    let sqre = 0;
+    
+    
 
     Ok(())
 }
