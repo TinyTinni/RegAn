@@ -99,12 +99,13 @@ impl ImageCollection {
         .fetch_all(&self.db)
         .await?;
 
-        for p  in players.iter() {
+        for p in players.iter() {
             println! {"{} rat {} dev {}", &p.name, &p.rating, &p.deviation};
         }
-        let mut sqre : f32 = 0.;
-        for i in 0..players.len(){
-            sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)*(players[i].name.parse::<f32>().unwrap() - i as f32);
+        let mut sqre: f32 = 0.;
+        for i in 0..players.len() {
+            sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)
+                * (players[i].name.parse::<f32>().unwrap() - i as f32);
         }
         sqre /= players.len() as f32;
         sqre = sqre.sqrt();
@@ -190,7 +191,7 @@ impl ImageCollection {
                     }
                     info!(
                         "refresh duel queue done in {} microseconds. Current size: {}",
-                        now.elapsed().as_micros(),
+                        now.elapsed().as_millis(),
                         can_queue.len()
                     );
                     db_update_in_progress.store(false, std::sync::atomic::Ordering::Release);
@@ -208,7 +209,7 @@ impl ImageCollection {
                 warn!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
                 //todo: use a cell on candidate_queue to increase its capacity
                 // calculate new matches full on it
-                let duels = calculate_new_matches(&self.db, 5).await?;
+                let duels = calculate_new_matches(&self.db, 3).await?;
                 if !duels.is_empty() {
                     return Ok(duels.into_iter().nth(0).unwrap());
                 } else {
@@ -355,27 +356,9 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
         // matchmaking
-        // the current idea is to select one with the current constraints:
-        // - should be in the range of the players "limit"
-        // - should also be a player which has not played often
-        // hopium says that this would lessen the requirements of #matches
-        // for all the players and that the deviation reduction
-        // is more uniformely distributred.
-        // But also, that, when the deviation is low, the deviations
-        // do not differ too much to have a better resolution of the ranking
         // todo: make some smulations of different matchmakings?
         let upper = home_id.rating + 1.96 * home_id.deviation;
         let lower = home_id.rating - 1.96 * home_id.deviation;
-        let limit = 2 * n_matches;
-
-        let random_id = sqlx::query_as!(
-            Player,
-            "SELECT id, rating, deviation, name FROM players
-        WHERE id != $1 ORDER BY RANDOM() LIMIT 1",
-            home_id.id
-        )
-        .fetch_one(db)
-        .await?;
 
         match sqlx::query_as!(
             Player,
@@ -384,60 +367,36 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
                 WHERE id != $1 AND
                 rating <= $2 AND
                 rating >= $3
-                ORDER BY deviation DESC
-                LIMIT $4)",
+                ORDER BY RANDOM() DESC)",
             home_id.id,
             upper,
-            lower,
-            limit
+            lower
         )
-        .fetch_all(db)
+        .fetch_one(db)
         .await
         {
-            // search for candidates which are not already in the buffer as guests
-            // players in the queue have already an updated deviation and should
-            // not occur here, unless their deviation is already high.
-            // If their deviation is high, they should get selected multiple times
-            // in order to lower their deviation fast
-            Ok(guest_ids) => {
-                if guest_ids.len() == 0 {   
-                    result.push(Duel {
-                        home: home_id.name,
-                        home_id: home_id.id as u32,
-                        guest: random_id.name,
-                        guest_id: random_id.id as u32,
-                    })
-                } else {
-                    let candidates = guest_ids
-                        .into_iter()
-                        .filter(|p| {
-                            home_ids.contains(&p.id)
-                                || result
-                                    .iter()
-                                    .map(|y: &Duel| i64::from(y.guest_id) == p.id)
-                                    .any(|y| y)                                    
-                        }).collect::<Vec<_>>();
-                    // if found, insert them
-                    let mut rng = rand::thread_rng();
-                    match candidates.choose(&mut rng) {
-                        Some(guest_id) => result.push(Duel {
-                            home: home_id.name,
-                            home_id: home_id.id as u32,
-                            guest: guest_id.name.clone(),
-                            guest_id: guest_id.id as u32,
-                        }),
-                        None => {
-                            result.push(Duel {
-                                home: home_id.name,
-                                home_id: home_id.id as u32,
-                                guest: random_id.name,
-                                guest_id: random_id.id as u32,
-                            })
-                        }
-                    }
-                }
+            Ok(guest_id) => result.push(Duel {
+                home: home_id.name,
+                home_id: home_id.id as u32,
+                guest: guest_id.name,
+                guest_id: guest_id.id as u32,
+            }),
+            _ => {
+                let random_id = sqlx::query_as!(
+                    Player,
+                        "SELECT id, rating, deviation, name FROM players
+                        WHERE id != $1 ORDER BY RANDOM()",
+                    home_id.id
+                )
+                .fetch_one(db)
+                .await?;
+                result.push(Duel {
+                    home: home_id.name,
+                    home_id: home_id.id as u32,
+                    guest: random_id.name,
+                    guest_id: random_id.id as u32,
+                })
             }
-            _ => {}
         };
     }
 
