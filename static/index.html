@@ -122,15 +122,13 @@
     
     // add hotkeys
     document.addEventListener('keydown', function (event) {
+    let click_event = new Event("click");
     if (event.key == 'x') {
-      event.currentTarget.id = "left_image"
-      onPlayerClicked()
+      document.getElementById("left_image").dispatchEvent(click_event)
     }else if (event.key == 'm'){
-      event.currentTarget.id = "right_image"
-      onPlayerClicked()
+      document.getElementById("left_image").dispatchEvent(click_event)
     }else if (event.key == 'b'){
-      event.currentTarget.id = "btn_draw"
-      onPlayerClicked()      
+      document.getElementById("btn_draw").dispatchEvent(click_event)    
     }
 });
 
