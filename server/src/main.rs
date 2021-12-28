@@ -3,7 +3,23 @@ extern crate log;
 
 use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
-use image_collection::{ImageCollection, Match, ImageCollectionOptions};
+use clap::Parser;
+use image_collection::{ImageCollection, ImageCollectionOptions, Match};
+
+#[derive(Parser, Debug)]
+#[clap(about, version, author)]
+struct Args {
+    /// The output database. Must be a file as only sqlite is currently supported
+    /// Write the path in the form of "sqlite://<rel-path>"
+    #[clap(short, long, default_value = "sqlite://out.db")]
+    output: String,
+
+    /// The queue buffer. Candidates gets pre-computed.
+    /// The precomputation lowers the precision of the matchmaking
+    /// but also reduces the possible latency of the next match up
+    #[clap(long, default_value_t = 20)]
+    queue_buffer: usize,
+}
 
 #[get("/")]
 async fn index() -> impl Responder {
@@ -53,9 +69,11 @@ async fn main() -> Result<()> {
         //.filter_level(log::LevelFilter::Info)
         .init();
 
+    let args = Args::parse();
+
     let options = ImageCollectionOptions {
-        db_path: "sqlite://test.db".to_owned(),
-        candidate_buffer: 20,
+        db_path: args.output,
+        candidate_buffer: args.queue_buffer,
     };
     let img_col = ImageCollection::new(&options).await?;
 
