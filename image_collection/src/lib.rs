@@ -9,7 +9,6 @@ mod glicko;
 
 use anyhow::Result;
 use crossbeam::queue::ArrayQueue;
-use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -90,7 +89,7 @@ impl ImageCollection {
             name: String,
             rating: f32,
             deviation: f32,
-        };
+        }
 
         let players = sqlx::query_as!(
             Player,
@@ -351,7 +350,6 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     .fetch_all(db)
     .await?;
 
-    let home_ids = home_players.iter().map(|x| x.id).collect::<Vec<_>>();
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
@@ -363,11 +361,11 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
         match sqlx::query_as!(
             Player,
             "SELECT id, rating, deviation, name FROM players 
-            WHERE id IN (SELECT id FROM players 
+             WHERE id IN (SELECT id FROM players 
                 WHERE id != $1 AND
                 rating <= $2 AND
                 rating >= $3
-                ORDER BY RANDOM() DESC)",
+                ORDER BY RANDOM() LIMIT 1)",
             home_id.id,
             upper,
             lower
