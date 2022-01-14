@@ -44,7 +44,7 @@ async fn return_new_match(
     }
 }
 
-#[post("/played_match")]
+#[post("/matches")]
 async fn on_new_score(
     m: actix_web::web::Json<Match>,
     collection: web::Data<ImageCollection>,

@@ -116,7 +116,7 @@
 
       // send message and load new match
       loadNewMatch()
-      fetch('/played_match', { method: 'POST', body: JSON.stringify(match), headers: { 'Content-Type': 'application/json' } })
+      fetch('/matches', { method: 'POST', body: JSON.stringify(match), headers: { 'Content-Type': 'application/json' } })
 
     }
     
