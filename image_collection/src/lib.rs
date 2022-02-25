@@ -355,8 +355,8 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     while let Some(home_id) = stream.next().await {
         // matchmaking
         // todo: make some smulations of different matchmakings?
-        let upper = home_id.rating + 1.96 * home_id.deviation;
-        let lower = home_id.rating - 1.96 * home_id.deviation;
+        let upper = home_id.rating + 0.96 * home_id.deviation;
+        let lower = home_id.rating - 0.96 * home_id.deviation;
 
         match sqlx::query_as!(
             Player,
@@ -365,7 +365,7 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
                 WHERE id != $1 AND
                 rating <= $2 AND
                 rating >= $3
-                ORDER BY RANDOM() LIMIT 1)",
+                ORDER BY RANDOM() LIMIT 10)",
             home_id.id,
             upper,
             lower

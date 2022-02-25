@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
             .service(on_new_score)
             .service(actix_files::Files::new("/images", "./images"))
     })
-    .keep_alive(90)
+    .keep_alive(std::time::Duration::new(90,0))
     .bind(addr)?;
 
     println!("Start Server on {}.", addr);

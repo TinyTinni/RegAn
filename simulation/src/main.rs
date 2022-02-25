@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
     }).await;
 
     let runs_per_sec = runs as f64 / start.elapsed().as_secs_f64();
-    //collection.to_csv().await?;
+    collection.to_csv().await?;
 
     println!("runs per sec: {}", runs_per_sec);
 
