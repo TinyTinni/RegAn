@@ -6,12 +6,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "^4.0.0"
+actix-web = "^4.0"
 rand = "^0.8"
 futures = "^0.3"
 env_logger = "^0.9"
 log = "^0.4"
 anyhow = "^1"
-clap = { version = "3.0.0-rc.9", features = ["derive"] }
+clap = { version = "^3.1", features = ["derive"] }
 image_collection =  {path = "../image_collection"}
 
