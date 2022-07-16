@@ -84,7 +84,7 @@ impl ImageCollection {
         })
     }
 
-    pub async fn to_csv(&self) -> Result<()> {
+    pub async fn print_csv(&self) -> Result<()> {
         struct Player {
             name: String,
             rating: f32,
@@ -98,17 +98,19 @@ impl ImageCollection {
         .fetch_all(&self.db)
         .await?;
 
+        println!{"original,rating,deviation"};
+
         for p in players.iter() {
-            println! {"{} rat {} dev {}", &p.name, &p.rating, &p.deviation};
+            println! {"{},{},{}", &p.name, &p.rating, &p.deviation};
         }
-        let mut sqre: f32 = 0.;
-        for i in 0..players.len() {
-            sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)
-                * (players[i].name.parse::<f32>().unwrap() - i as f32);
-        }
-        sqre /= players.len() as f32;
-        sqre = sqre.sqrt();
-        println!("MSRE: {}", sqre);
+        //let mut sqre: f32 = 0.;
+        //for i in 0..players.len() {
+        //    sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)
+        //        * (players[i].name.parse::<f32>().unwrap() - i as f32);
+        //}
+        //sqre /= players.len() as f32;
+        //sqre = sqre.sqrt();
+        //println!("MSRE: {}", sqre);
 
         Ok(())
     }

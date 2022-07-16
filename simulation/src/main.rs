@@ -1,6 +1,33 @@
 use anyhow::Result;
 use futures::StreamExt;
+use clap::Parser;
 use image_collection::{ImageCollection, Match};
+
+#[derive(Parser, Debug)]
+#[clap(about, version, author)]
+struct Args {
+    /// The output database. Must be a file as only sqlite is currently supported
+    /// Write the path in the form of "sqlite://<rel-path>"
+    #[clap(short, long)]
+    samples: usize,
+
+    /// The queue buffer. Candidates gets pre-computed.
+    /// The precomputation lowers the precision of the matchmaking
+    /// but also reduces the possible latency of the next match up
+    #[clap(short, long)]
+    games: usize,
+
+    //#[clap(long, default_value_t = 0.0_f64)]
+    //uncertinty: f64,
+
+    /// Prints timings for program runtime
+    #[clap(long, default_value_t = false, value_parser)]
+    print_timing: bool,
+
+    /// Omit printing resulting CSV 
+    #[clap(long, default_value_t = false, value_parser)]
+    no_csv: bool,
+}
 
 #[actix_web::main]
 async fn main() -> Result<()> {
@@ -8,11 +35,12 @@ async fn main() -> Result<()> {
         //.filter_level(log::LevelFilter::Warn)
         .init();
 
-    // configure db
-    let collection = ImageCollection::new_pre_configured(500).await?;
+    let args = Args::parse();
 
-    let runs = 10_000;
-    let stream = futures::stream::iter(0..runs);
+    // configure db
+    let collection = ImageCollection::new_pre_configured(args.samples as u32).await?;
+
+    let stream = futures::stream::iter(0..args.games);
     let start = std::time::Instant::now();
 
     stream.for_each_concurrent(1, |_| async  {
@@ -34,10 +62,16 @@ async fn main() -> Result<()> {
         collection.insert_match(&m).await.unwrap();
     }).await;
 
-    let runs_per_sec = runs as f64 / start.elapsed().as_secs_f64();
-    collection.to_csv().await?;
+    if !args.no_csv
+    {
+        collection.print_csv().await?;
+    }
 
-    println!("runs per sec: {}", runs_per_sec);
+    if args.print_timing
+    {
+        let runs_per_sec = args.games as f64 / start.elapsed().as_secs_f64();
+        println!("runs per sec: {}", runs_per_sec);
+    }
 
     Ok(())
 }
