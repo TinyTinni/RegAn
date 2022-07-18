@@ -45,10 +45,12 @@ async fn main() -> Result<()> {
 
     stream.for_each_concurrent(1, |_| async  {
         let new_duel = collection.new_duel().await.unwrap();
+        let home_value: u32 = new_duel.home.parse().unwrap();
+        let guest_value: u32 = new_duel.guest.parse().unwrap();
         let home_id = new_duel.home_id;
         let guest_id = new_duel.guest_id;
         let won = {
-            if home_id > guest_id {
+            if home_value > guest_value {
                 1_f32
             } else {
                 0_f32

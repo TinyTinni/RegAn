@@ -1,3 +1,6 @@
 /target
 /images
 /.vscode
+.Rproj.user
+simulation/eval/.RData
+simulation/eval/.Rhistory

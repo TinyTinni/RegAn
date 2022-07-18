@@ -133,12 +133,13 @@ impl ImageCollection {
 
         let mut tx = db.begin().await?;
         for i in 0..num {
+            let name = num-i;
             sqlx::query!(
                 "
                 INSERT INTO players (name, rating, deviation) 
                 VALUES (?, 2200, 350)
                 ",
-                i
+                name
             )
             .execute(&mut tx)
             .await?;
@@ -367,7 +368,7 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
                 WHERE id != $1 AND
                 rating <= $2 AND
                 rating >= $3
-                ORDER BY RANDOM() LIMIT 10)",
+                ORDER BY RANDOM() LIMIT 10) ORDER BY deviation DESC",
             home_id.id,
             upper,
             lower
