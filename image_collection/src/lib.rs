@@ -14,6 +14,8 @@ use sqlx::SqlitePool;
 use std::str::FromStr;
 use tokio_stream::StreamExt;
 
+use rand::prelude::*;
+
 #[derive(Clone)]
 pub struct ImageCollection {
     /// buffers pre-computed matches
@@ -131,15 +133,19 @@ impl ImageCollection {
         let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(20));
         sqlx::query_file!("./schema.sql").execute(&db).await?;
 
+        // generate numbers
+        let mut numbers : Vec<u32>= (0..num).collect();
+        let mut rng = rand::thread_rng();
+        numbers.shuffle(&mut rng);
+
         let mut tx = db.begin().await?;
-        for i in 0..num {
-            let name = num-i;
+        for i in numbers {
             sqlx::query!(
                 "
                 INSERT INTO players (name, rating, deviation) 
                 VALUES (?, 2200, 350)
                 ",
-                name
+                i
             )
             .execute(&mut tx)
             .await?;
