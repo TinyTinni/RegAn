@@ -6,11 +6,13 @@ games <- seq(2500, 2500, 100)
 samples <- 700
 
 # uncertainty
-# how much errors a human makes when he compares samples which are very close to each other
+# how much errors a human makes when he compares samples
+# which are very close to each other
 std_dev <- 100.0
 
 
-# path to the program. The Rust program should be compiled first with "cargo build --release"
+# path to the program. 
+# The Rust program should be compiled first with "cargo build --release"
 if (require(here)) {
   library(here)
   here::i_am("simulation/eval/eval.Rproj")
@@ -22,32 +24,30 @@ if (require(here)) {
 
 #####################
 
-simulateGlicko <- function (samples, games, mu)
-{
+simulate_glicko <- function(samples, games, mu, program_path) {
   csv <-
     system2(program_path, paste0(
       "-g ",
-      format(games, scientific = F),
+      format(games, scientific = FALSE),
       " -s ",
-      format(samples, scientific = F),
+      format(samples, scientific = FALSE),
       " --std-dev ",
-      format(std_dev, scientific = F)
-    ), stdout = T)
+      format(std_dev, scientific = FALSE)
+    ), stdout = TRUE)
   df <- read.csv(textConnection(csv))
-  
-  df$linear_rank <- seq(1:nrow(df))
-  
+
+  df$linear_rank <- seq(1:samples)
+
   df$places_diff = df$original - df$linear_rank
-  #msre <- sqrt(sum(df$places_diff*df$places_diff))
-  #df$msre <- msre
+
   df
 }
 
 library(ggplot2)
 for (g in games) {
-  df <- simulateGlicko(samples, g, 0.0)
+  df <- simulate_glicko(samples, g, 0.0, program_path)
   msre <- sqrt(sum(df$places_diff * df$places_diff) / nrow(df))
-  
+
   ## graphical output
   title <- paste0(
     "games: ",
@@ -59,9 +59,6 @@ for (g in games) {
     " avg. deviation: ",
     round(mean(df$deviation), digits = 2)
   )
-  
-  #library(ggplot2)
-  #
   p <-
     ggplot(
       df,
@@ -75,11 +72,11 @@ for (g in games) {
     geom_point() +
     geom_pointrange(colour = "#000099") +
     ggtitle(title)
-  
+
   p_linear <- ggplot(df, aes(x = original, y = linear_rank)) +
     geom_point(colour = "#FF0000") +
     ggtitle(title)
-  
+
   print(p_linear)
   Sys.sleep(1)
 }
