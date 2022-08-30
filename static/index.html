@@ -4,6 +4,7 @@
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1" , charset="UTF-8">
   <title>RegAn</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦋</text></svg>">
   <style>
     img {
       display: grid;
@@ -28,16 +29,27 @@
       width: 300px;
       margin: auto;
     }
+
+    .topRight {
+      position: absolute;
+      top: 0%;
+      right: 2%;
+    }
   </style>
 </head>
 
-<body onload="loadNewMatch()">
+<body onload="loadInitialMatch()">
 
   <h2>Regression Annotation Tool</h2>
-  <p>Welcome. Please click on the image which looks better.</p>
-  <p>Hotkeys: 'X' left image, 'M' right image, 'B' equal</p>
+  <p>Welcome. Please click on the image which looks better.<br>Hotkeys: 'X' left image, 'M' right image, 'B' equal</p>
+  <div class="topRight">
+    <p>Author: Matthias Möller<br>License: <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">AGPL-3.0</a><br><a href="https://github.com/TinyTinni/RegAn">Visit on GitHub</a></p>
+  </div>
+
+
   <div class="center_btn">
     <button class="center_btn" id="btn_draw" , disabled>Equal</button>
+    <div><br></div>
   </div>
 
   <figcaption>
@@ -73,19 +85,24 @@
       }
     }
 
-    function loadNewMatch() {
-      left_image = document.getElementById("left_image")
-      right_image = document.getElementById("right_image")
-      fetch('/matches', { method: 'GET' }).
-        then(function (response) {
-          response.json().
-            then(function (next_match) {
-              left_image.src = "images/" + next_match.home
-              right_image.src = "images/" + next_match.guest
-              left_image.dataId = next_match.home_id
-              right_image.dataId = next_match.guest_id
-            })
+    function processMatchResponse(response) {
+      response.json()
+        .then(function (next_match) {
+          left_image = document.getElementById("left_image")
+          right_image = document.getElementById("right_image")
+          left_image.src = "images/" + next_match.home
+          right_image.src = "images/" + next_match.guest
+          left_image.dataId = next_match.home_id
+          right_image.dataId = next_match.guest_id
         })
+    }
+
+    function loadInitialMatch() {
+      fetch('/matches', { method: 'GET' })
+        .then(processMatchResponse)
+        .catch((error) => {
+          window.location.reload(true)
+        });
     }
 
     function onPlayerClicked() {
@@ -99,12 +116,14 @@
       document.getElementById("btn_draw").removeEventListener("click", onPlayerClicked)
 
       // get winner
-      if (event.currentTarget.id == "left_image") {
-        winner = 1
-      } else if (event.currentTarget.id == "right_image") {
-        winner = 0
-      } else if (event.currentTarget.id == "btn_draw") {
-        winner = 0.5
+      switch(event.currentTarget.id)
+      {
+        case "left_image": winner = 1
+        break;
+        case "right_image": winner = 0
+        break;
+        case "btn_draw": winner = 0.5
+        break;
       }
 
       // prepare message
@@ -115,9 +134,11 @@
       }
 
       // send message and load new match
-      loadNewMatch()
       fetch('/matches', { method: 'POST', body: JSON.stringify(match), headers: { 'Content-Type': 'application/json' } })
-
+        .then(processMatchResponse)
+        .catch((error) => {
+          window.location.reload(true)
+        });
     }
     
     // add hotkeys

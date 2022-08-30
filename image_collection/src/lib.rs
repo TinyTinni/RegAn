@@ -14,6 +14,8 @@ use sqlx::SqlitePool;
 use std::str::FromStr;
 use tokio_stream::StreamExt;
 
+use rand::prelude::*;
+
 #[derive(Clone)]
 pub struct ImageCollection {
     /// buffers pre-computed matches
@@ -87,8 +89,8 @@ impl ImageCollection {
     pub async fn print_csv(&self) -> Result<()> {
         struct Player {
             name: String,
-            rating: f32,
-            deviation: f32,
+            rating: f64,
+            deviation: f64,
         }
 
         let players = sqlx::query_as!(
@@ -131,8 +133,13 @@ impl ImageCollection {
         let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(20));
         sqlx::query_file!("./schema.sql").execute(&db).await?;
 
+        // generate numbers
+        let mut numbers : Vec<u32>= (0..num).collect();
+        let mut rng = rand::thread_rng();
+        numbers.shuffle(&mut rng);
+
         let mut tx = db.begin().await?;
-        for i in 0..num {
+        for i in numbers {
             sqlx::query!(
                 "
                 INSERT INTO players (name, rating, deviation) 
@@ -153,7 +160,7 @@ impl ImageCollection {
     }
 
     /// informs the system about the result of a played match
-    pub async fn insert_match(&self, m: &Match) -> Result<()> {
+    pub async fn insert_match(&self, m: &Match) -> () {
         let db = self.db.clone();
         let can_queue = self.candidates.clone();
         let m = m.clone();
@@ -199,7 +206,6 @@ impl ImageCollection {
                 }
             }
         });
-        Ok(())
     }
 
     /// requests a new duel which needs to be played
@@ -268,9 +274,10 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     let mut tx = db.begin().await?;
 
     // update the rating
+    #[derive(Debug)]
     struct Rating {
-        rating: f32,
-        deviation: f32,
+        rating: f64,
+        deviation: f64,
     }
 
     let rt_home = sqlx::query_as!(
@@ -289,13 +296,13 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     .await?;
 
     let rth = glicko::Rating {
-        deviation: rt_home.deviation as f64,
-        rating: rt_home.rating as f64,
+        deviation: rt_home.deviation,
+        rating: rt_home.rating,
         time: 0,
     };
     let rtg = glicko::Rating {
-        deviation: rt_guest.deviation as f64,
-        rating: rt_guest.rating as f64,
+        deviation: rt_guest.deviation,
+        rating: rt_guest.rating,
         time: 0,
     };
     let rth_new = glicko::new_rating(&rth, &rtg, m.won as f64, 0, 0_f64);
@@ -335,8 +342,8 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
 async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<Duel>> {
     struct Player {
         id: i64,
-        rating: f32,
-        deviation: f32,
+        rating: f64,
+        deviation: f64,
         name: String,
     }
     let n_matches = n_matches as u32;
@@ -367,7 +374,7 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
                 WHERE id != $1 AND
                 rating <= $2 AND
                 rating >= $3
-                ORDER BY RANDOM() LIMIT 10)",
+                ORDER BY RANDOM() LIMIT 10) ORDER BY deviation DESC",
             home_id.id,
             upper,
             lower

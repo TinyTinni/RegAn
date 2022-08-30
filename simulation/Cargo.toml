@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 actix-web = "^4.0"
 rand = "^0.8"
+rand_distr = "^0.4"
 futures = "^0.3"
 env_logger = "^0.9"
 log = "^0.4"
