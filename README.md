@@ -26,7 +26,7 @@ Default, the listens to port 8000, but it can be changed with the `--port` param
 The server will use images provided in a `images` subdirectory. Later on, you can add or remove images, but to take an effect, the server requires a restart. The subdirectory can be changed with the `image_dir` parameter.
 
 All games and the current ranking of each image is saved in an SQLite database. Default is currently the `out.db` file,
-but cna be changed with `-o` parameter, if you want another one.
+but can be changed with `-o` parameter. Using SQLite allows the server to run locally when the images are present, e.g. you can run the whole server from an USB stick.
 
 
 ### Simulator
