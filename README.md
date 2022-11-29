@@ -2,7 +2,7 @@
 
 ![banner](/simulation/eval/simulation_banner.gif)
 
-A tool to create an annotated set of strict ordered data based on images.
+A tool to create an annotated set of strict ordered data based on hard to rate images. It will give each image a rating so that they can ordered.
 
 
 ## Motivation
