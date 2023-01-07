@@ -1,2 +1,7 @@
+[profile.release]
+strip = true
+lto = true
+
 [workspace]
 members = ["image_collection", "server", "simulation"]
+
