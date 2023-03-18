@@ -1,8 +1,8 @@
 use anyhow::Result;
-use futures::StreamExt;
 use clap::Parser;
+use futures::StreamExt;
 use image_collection::{ImageCollection, Match};
-use rand_distr::{Normal, Distribution};
+use rand_distr::{Distribution, Normal};
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -30,7 +30,7 @@ struct Args {
     #[clap(long, default_value_t = false, value_parser)]
     print_timing: bool,
 
-    /// Omit printing resulting CSV 
+    /// Omit printing resulting CSV
     #[clap(long, default_value_t = false, value_parser)]
     no_csv: bool,
 }
@@ -51,37 +51,37 @@ async fn main() -> Result<()> {
 
     let distribution = Normal::new(0.0 as f64, args.std_dev)?;
 
-    stream.for_each_concurrent(1, |_| async  {
-        let new_duel = collection.new_duel().await.unwrap();
-        let home_value: u32 = new_duel.home.parse().unwrap();
-        let guest_value: u32 = new_duel.guest.parse().unwrap();
-        let home_id = new_duel.home_id;
-        let guest_id = new_duel.guest_id;
-        let mut rng = rand::thread_rng();
-        let skew = distribution.sample(&mut rng);
-        
-        let won = {            
-            if (home_value as f64 + skew) > guest_value as f64 {
-                1_f32
-            } else {
-                0_f32
-            }
-        };
-        let m = Match {
-            home_id,
-            guest_id,
-            won,
-        };
-        collection.insert_match(&m).await;
-    }).await;
+    stream
+        .for_each_concurrent(1, |_| async {
+            let new_duel = collection.new_duel().await.unwrap();
+            let home_value: u32 = new_duel.home.parse().unwrap();
+            let guest_value: u32 = new_duel.guest.parse().unwrap();
+            let home_id = new_duel.home_id;
+            let guest_id = new_duel.guest_id;
+            let mut rng = rand::thread_rng();
+            let skew = distribution.sample(&mut rng);
 
-    if !args.no_csv
-    {
+            let won = {
+                if (home_value as f64 + skew) > guest_value as f64 {
+                    1_f32
+                } else {
+                    0_f32
+                }
+            };
+            let m = Match {
+                home_id,
+                guest_id,
+                won,
+            };
+            collection.insert_match(&m).await;
+        })
+        .await;
+
+    if !args.no_csv {
         collection.print_csv().await?;
     }
 
-    if args.print_timing
-    {
+    if args.print_timing {
         let runs_per_sec = args.games as f64 / start.elapsed().as_secs_f64();
         println!("runs per sec: {}", runs_per_sec);
     }

@@ -100,7 +100,7 @@ impl ImageCollection {
         .fetch_all(&self.db)
         .await?;
 
-        println!{"original,rating,deviation"};
+        println! {"original,rating,deviation"};
 
         for p in players.iter() {
             println! {"{},{},{}", &p.name, &p.rating, &p.deviation};
@@ -134,7 +134,7 @@ impl ImageCollection {
         sqlx::query_file!("./schema.sql").execute(&db).await?;
 
         // generate numbers
-        let mut numbers : Vec<u32>= (0..num).collect();
+        let mut numbers: Vec<u32> = (0..num).collect();
         let mut rng = rand::thread_rng();
         numbers.shuffle(&mut rng);
 
@@ -147,7 +147,7 @@ impl ImageCollection {
                 ",
                 i
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
         }
         tx.commit().await?;
@@ -244,7 +244,7 @@ async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
         if !std::path::Path::new(&file_path).is_file() {
             info!("Image path \"{}\" does not exists in ", file);
             sqlx::query!("DELETE FROM players WHERE name = ?", file)
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
         }
     }
@@ -260,7 +260,7 @@ async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
                     ",
                     file
                 )
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
             }
         }
@@ -285,14 +285,14 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         "SELECT rating, deviation FROM players WHERE id = ?",
         m.home_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
     let rt_guest = sqlx::query_as!(
         Rating,
         "SELECT rating, deviation FROM players WHERE id = ?",
         m.guest_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     let rth = glicko::Rating {
@@ -313,7 +313,7 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         rth_new.deviation,
         m.home_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     sqlx::query!(
         "UPDATE players SET rating = ?, deviation = ? WHERE id = ?",
@@ -321,7 +321,7 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         rtg_new.deviation,
         m.guest_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     // insert the new match
@@ -331,7 +331,7 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         m.guest_id,
         m.won
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -391,7 +391,7 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
             _ => {
                 let random_id = sqlx::query_as!(
                     Player,
-                        "SELECT id, rating, deviation, name FROM players
+                    "SELECT id, rating, deviation, name FROM players
                         WHERE id != $1 ORDER BY RANDOM()",
                     home_id.id
                 )

@@ -39,7 +39,7 @@ async fn return_new_match(
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
     let now = std::time::Instant::now();
-    match collection.get_ref().new_duel().await {
+    match collection.new_duel().await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);
             info!("get matches: {} microseconds", now.elapsed().as_micros());
@@ -58,8 +58,8 @@ async fn on_new_score(
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
     let now = std::time::Instant::now();
-    collection.get_ref().insert_match(&m).await;
-    match collection.get_ref().new_duel().await {
+    collection.insert_match(&m).await;
+    match collection.new_duel().await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);
             info!("post scores: {} microseconds", now.elapsed().as_micros());
