@@ -90,8 +90,6 @@ async fn main() -> Result<()> {
         println!("runs per sec: {}", runs_per_sec);
     }
 
-    println!("MSRE: {}", collection.msre().await.unwrap());
-
     Ok(())
 }
 
@@ -107,7 +105,9 @@ mod simulation {
     }
     #[actix_web::test]
     async fn regression() {
+        // tests if the implemented strategy can help us to keep our MSRE
         let collection = run_simulation(500, 4000, 50_f64).await.unwrap();
+        //is allowed to be lower, but not higher
         assert_delta!(collection.msre().await.unwrap(), 26.5, 0.5);
     }
 }
