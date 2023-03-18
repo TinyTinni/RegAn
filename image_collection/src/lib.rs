@@ -86,6 +86,24 @@ impl ImageCollection {
         })
     }
 
+    pub async fn msre(&self) -> Result<f32> {
+        struct Player {
+            name: String,
+        }
+
+        let players = sqlx::query_as!(Player, "SELECT name FROM players ORDER BY rating")
+            .fetch_all(&self.db)
+            .await?;
+        let mut sqre: f32 = 0.;
+        for i in 0..players.len() {
+            sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)
+                * (players[i].name.parse::<f32>().unwrap() - i as f32);
+        }
+        sqre /= players.len() as f32;
+        sqre = sqre.sqrt();
+        Ok(sqre)
+    }
+
     pub async fn print_csv(&self) -> Result<()> {
         struct Player {
             name: String,

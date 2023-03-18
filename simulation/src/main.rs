@@ -35,21 +35,12 @@ struct Args {
     no_csv: bool,
 }
 
-#[actix_web::main]
-async fn main() -> Result<()> {
-    env_logger::builder()
-        //.filter_level(log::LevelFilter::Warn)
-        .init();
+async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<ImageCollection> {
+    let collection = ImageCollection::new_pre_configured(samples as u32).await?;
 
-    let args = Args::parse();
+    let stream = futures::stream::iter(0..games);
 
-    // configure db
-    let collection = ImageCollection::new_pre_configured(args.samples as u32).await?;
-
-    let stream = futures::stream::iter(0..args.games);
-    let start = std::time::Instant::now();
-
-    let distribution = Normal::new(0.0 as f64, args.std_dev)?;
+    let distribution = Normal::new(0_f64, std_dev)?;
 
     stream
         .for_each_concurrent(1, |_| async {
@@ -76,6 +67,19 @@ async fn main() -> Result<()> {
             collection.insert_match(&m).await;
         })
         .await;
+    Ok(collection)
+}
+
+#[actix_web::main]
+async fn main() -> Result<()> {
+    env_logger::builder()
+        //.filter_level(log::LevelFilter::Warn)
+        .init();
+
+    let args = Args::parse();
+
+    let start = std::time::Instant::now();
+    let collection = run_simulation(args.games, args.samples, args.std_dev).await?;
 
     if !args.no_csv {
         collection.print_csv().await?;
@@ -86,5 +90,24 @@ async fn main() -> Result<()> {
         println!("runs per sec: {}", runs_per_sec);
     }
 
+    println!("MSRE: {}", collection.msre().await.unwrap());
+
     Ok(())
+}
+
+#[cfg(test)]
+mod simulation {
+    use super::*;
+    macro_rules! assert_delta {
+        ($x:expr, $y:expr, $d:expr) => {
+            if !($x - $y < $d || $y - $x < $d) {
+                panic!();
+            }
+        };
+    }
+    #[actix_web::test]
+    async fn regression() {
+        let collection = run_simulation(500, 4000, 50_f64).await.unwrap();
+        assert_delta!(collection.msre().await.unwrap(), 26.5, 0.5);
+    }
 }

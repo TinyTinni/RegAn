@@ -50,35 +50,45 @@ pub fn new_rating(
     }
 }
 
-//     mod tests{
-//         use super::*;
-//         macro_rules! assert_delta {
-//             ($x:expr, $y:expr, $d:expr) => {
-//                 if !($x - $y < $d || $y - $x < $d) { panic!(); }
-//             }
-//         }
-//         #[test]
-//         fn test_g()
-//         {
-//             let g = g_rd(30_f64);
-//             assert_delta!(g, 0.9954980060779481_f64, 0.00001);
-//             let g = g_rd(100_f64);
-//             assert_delta!(g, 0.953148974234587_f64, 0.00001);
-//         }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    macro_rules! assert_delta {
+        ($x:expr, $y:expr, $d:expr) => {
+            if !($x - $y < $d || $y - $x < $d) {
+                panic!();
+            }
+        };
+    }
+    #[test]
+    fn test_g() {
+        let g = g_rd(30_f64);
+        assert_delta!(g, 0.9954980060779481_f64, 0.00001);
+        let g = g_rd(100_f64);
+        assert_delta!(g, 0.953148974234587_f64, 0.00001);
+    }
 
-//         #[test]
-//         fn test_e()
-//         {
-//             let e = e_f(1500.0_f64, 1400_f64, 30.0_f64);
-//             assert_delta!(e, 0.639467736007921, 0.00001);
-//         }
+    #[test]
+    fn test_e() {
+        let e = e_f(1500.0_f64, 1400_f64, 30.0_f64);
+        assert_delta!(e, 0.639467736007921, 0.00001);
+    }
 
-//         #[test]
-//         fn test_new_rating()
-//         {
-//             let h = Rating{rating: 1500.0, deviation: 200.0, time: 0};
-//             let g = Rating{rating:1400.0, deviation: 30.0, time: 0};
-//             let nr = new_rating(&h, &g, 1.0, 0, 0_f64);
-//         }
-
-//     }
+    #[test]
+    fn test_new_rating() {
+        let h = Rating {
+            rating: 1500.0,
+            deviation: 200.0,
+            time: 0,
+        };
+        let g = Rating {
+            rating: 1400.0,
+            deviation: 30.0,
+            time: 0,
+        };
+        let nr = new_rating(&h, &g, 1.0, 0, 0_f64);
+        assert_delta!(nr.rating, 1562.9, 0.1);
+        assert_delta!(nr.deviation, 175.2, 0.1);
+        assert_eq!(nr.time, 0);
+    }
+}
