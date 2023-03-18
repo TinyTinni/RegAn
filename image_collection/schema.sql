@@ -12,3 +12,7 @@ CREATE TABLE IF NOT EXISTS matches(
     result REAL NOT NULL,
     timestamp DATE NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_player_rating ON players (rating); 
+CREATE INDEX IF NOT EXISTS idx_player_deviation ON players(deviation);
+

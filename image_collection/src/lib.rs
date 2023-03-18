@@ -357,13 +357,73 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     Ok(())
 }
 
-async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<Duel>> {
-    struct Player {
-        id: i64,
-        rating: f64,
-        deviation: f64,
-        name: String,
+struct Player {
+    id: i64,
+    rating: f64,
+    deviation: f64,
+    name: String,
+}
+
+async fn select_random_player_uniform(db: &SqlitePool, home_id: &Player) -> Result<Player> {
+    let all = sqlx::query_scalar!("SELECT COUNT(*) FROM players")
+        .fetch_one(db)
+        .await?;
+    let rnd = {
+        let mut rng = rand::thread_rng();
+        let distr = rand::distributions::Uniform::new(0, all - 1);
+        rng.sample(distr)
+    };
+    let random_id = sqlx::query_as!(
+        Player,
+        "SELECT id, rating, deviation, name FROM players
+        WHERE id != $1 LIMIT 1 OFFSET $2",
+        home_id.id,
+        rnd
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(random_id)
+}
+
+/// always the best performing strategy
+async fn select_random_player(db: &SqlitePool, home_id: &Player) -> Result<Player> {
+    // matchmaking
+    // todo: make some smulations of different matchmakings?
+    let upper = home_id.rating + 0.96 * home_id.deviation;
+    let lower = home_id.rating - 0.96 * home_id.deviation;
+
+    let random_id = sqlx::query_as!(
+        Player,
+        "SELECT id, rating, deviation, name FROM players 
+        WHERE id IN (SELECT id FROM players 
+           WHERE id != $1 AND
+           rating <= $2 AND
+           rating >= $3
+           ORDER BY RANDOM() LIMIT 1)",
+        // "SELECT id, rating, deviation, name FROM players
+        //      WHERE id IN (SELECT id FROM players
+        //         WHERE id != $1 AND
+        //         rating <= $2 AND
+        //         rating >= $3
+        //         LIMIT 1 OFFSET (ABS(RANDOM()) % (SELECT COUNT(*)
+        //             FROM players WHERE id != $1 AND
+        //             rating <= $2 AND
+        //             rating >= $3))
+        //         )",
+        home_id.id,
+        upper,
+        lower
+    )
+    .fetch_one(db)
+    .await;
+
+    match random_id {
+        Ok(r) => Ok(r),
+        _ => select_random_player_uniform(db, home_id).await,
     }
+}
+
+async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<Duel>> {
     let n_matches = n_matches as u32;
     let home_players = sqlx::query_as!(
         Player,
@@ -380,50 +440,16 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
-        // matchmaking
-        // todo: make some smulations of different matchmakings?
-        let upper = home_id.rating + 0.96 * home_id.deviation;
-        let lower = home_id.rating - 0.96 * home_id.deviation;
-
-        match sqlx::query_as!(
-            Player,
-            "SELECT id, rating, deviation, name FROM players 
-             WHERE id IN (SELECT id FROM players 
-                WHERE id != $1 AND
-                rating <= $2 AND
-                rating >= $3
-                ORDER BY RANDOM() LIMIT 10) ORDER BY deviation DESC",
-            home_id.id,
-            upper,
-            lower
-        )
-        .fetch_one(db)
-        .await
-        {
-            Ok(guest_id) => result.push(Duel {
+        let rnd_player = select_random_player(&db, &home_id).await;
+        match rnd_player {
+            Ok(guest) => result.push(Duel {
                 home: home_id.name,
                 home_id: home_id.id as u32,
-                guest: guest_id.name,
-                guest_id: guest_id.id as u32,
+                guest: guest.name,
+                guest_id: guest.id as u32,
             }),
-            _ => {
-                let random_id = sqlx::query_as!(
-                    Player,
-                    "SELECT id, rating, deviation, name FROM players
-                        WHERE id != $1 ORDER BY RANDOM()",
-                    home_id.id
-                )
-                .fetch_one(db)
-                .await?;
-                result.push(Duel {
-                    home: home_id.name,
-                    home_id: home_id.id as u32,
-                    guest: random_id.name,
-                    guest_id: random_id.id as u32,
-                })
-            }
-        };
+            _ => {}
+        }
     }
-
     Ok(result)
 }

@@ -55,9 +55,7 @@ mod tests {
     use super::*;
     macro_rules! assert_delta {
         ($x:expr, $y:expr, $d:expr) => {
-            if !($x - $y < $d || $y - $x < $d) {
-                panic!();
-            }
+            assert!(($x - $y).abs() < $d && ($y - $x).abs() < $d);
         };
     }
     #[test]

@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let start = std::time::Instant::now();
-    let collection = run_simulation(args.games, args.samples, args.std_dev).await?;
+    let collection = run_simulation(args.samples, args.games, args.std_dev).await?;
 
     if !args.no_csv {
         collection.print_csv().await?;
@@ -96,18 +96,16 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod simulation {
     use super::*;
-    macro_rules! assert_delta {
+    macro_rules! _assert_delta {
         ($x:expr, $y:expr, $d:expr) => {
-            if !($x - $y < $d || $y - $x < $d) {
-                panic!();
-            }
+            assert!(($x - $y).abs() < $d && ($y - $x).abs() < $d);
         };
     }
     #[actix_web::test]
     async fn regression() {
         // tests if the implemented strategy can help us to keep our MSRE
         let collection = run_simulation(500, 4000, 50_f64).await.unwrap();
-        //is allowed to be lower, but not higher
-        assert_delta!(collection.msre().await.unwrap(), 26.5, 0.5);
+        let msre = collection.msre().await.unwrap();
+        assert!(msre < 27.0);
     }
 }
