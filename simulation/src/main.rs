@@ -104,8 +104,8 @@ mod simulation {
     #[actix_web::test]
     async fn regression() {
         // tests if the implemented strategy can help us to keep our MSRE
-        let collection = run_simulation(500, 4000, 50_f64).await.unwrap();
+        let collection = run_simulation(500, 5000, 50_f64).await.unwrap();
         let msre = collection.msre().await.unwrap();
-        assert!(msre < 28.0);
+        assert!(msre < 28.0, "msre: {}", msre);
     }
 }
