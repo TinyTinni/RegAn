@@ -65,6 +65,7 @@ impl ImageCollection {
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(3000))
             .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .create_if_missing(true);
 
         let db = sqlx::sqlite::SqlitePoolOptions::new()
@@ -140,7 +141,8 @@ impl ImageCollection {
             .shared_cache(false)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(3000))
-            .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive);
+            .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
 
         let db = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
@@ -394,22 +396,22 @@ async fn select_random_player(db: &SqlitePool, home_id: &Player) -> Result<Playe
 
     let random_id = sqlx::query_as!(
         Player,
-        "SELECT id, rating, deviation, name FROM players 
-        WHERE id IN (SELECT id FROM players 
-           WHERE id != $1 AND
-           rating <= $2 AND
-           rating >= $3
-           ORDER BY RANDOM() LIMIT 1)",
         // "SELECT id, rating, deviation, name FROM players
-        //      WHERE id IN (SELECT id FROM players
-        //         WHERE id != $1 AND
-        //         rating <= $2 AND
-        //         rating >= $3
-        //         LIMIT 1 OFFSET (ABS(RANDOM()) % (SELECT COUNT(*)
-        //             FROM players WHERE id != $1 AND
-        //             rating <= $2 AND
-        //             rating >= $3))
-        //         )",
+        // WHERE id IN (SELECT id FROM players
+        //    WHERE id != $1 AND
+        //    rating <= $2 AND
+        //    rating >= $3
+        //    ORDER BY RANDOM() LIMIT 1)",
+        "SELECT id, rating, deviation, name FROM players
+            WHERE id IN (SELECT id FROM players
+                WHERE id != $1 AND
+                rating <= $2 AND
+                rating >= $3
+                LIMIT 1 OFFSET (ABS(RANDOM()) % (SELECT COUNT(*)
+                    FROM players WHERE id != $1 AND
+                    rating <= $2 AND
+                    rating >= $3))
+                )",
         home_id.id,
         upper,
         lower
@@ -427,11 +429,9 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let n_matches = n_matches as u32;
     let home_players = sqlx::query_as!(
         Player,
-        "SELECT id, rating, deviation AS deviation, name FROM players WHERE 
-             id IN 
-               (SELECT id FROM players 
+        "SELECT id, rating, deviation, name FROM players 
                 ORDER BY deviation DESC 
-                LIMIT ?)",
+                LIMIT ?",
         n_matches
     )
     .fetch_all(db)
@@ -440,15 +440,13 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
-        let rnd_player = select_random_player(&db, &home_id).await;
-        match rnd_player {
-            Ok(guest) => result.push(Duel {
+        if let Ok(guest) = select_random_player(&db, &home_id).await {
+            result.push(Duel {
                 home: home_id.name,
                 home_id: home_id.id as u32,
                 guest: guest.name,
                 guest_id: guest.id as u32,
-            }),
-            _ => {}
+            });
         }
     }
     Ok(result)
