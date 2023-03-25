@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY NOT NULL,
-    name TEXT NOT NULL,
+    name TEXT UNIQUE NOT NULL,
     rating REAL NOT NULL,
     deviation REAL NOT NULL
 );

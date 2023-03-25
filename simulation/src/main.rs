@@ -1,6 +1,5 @@
 use anyhow::Result;
 use clap::Parser;
-use futures::StreamExt;
 use image_collection::{ImageCollection, Match};
 use rand_distr::{Distribution, Normal};
 
@@ -38,35 +37,31 @@ struct Args {
 async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<ImageCollection> {
     let collection = ImageCollection::new_pre_configured(samples as u32).await?;
 
-    let stream = futures::stream::iter(0..games);
-
     let distribution = Normal::new(0_f64, std_dev)?;
+    let mut rng = rand::thread_rng();
 
-    stream
-        .for_each_concurrent(1, |_| async {
-            let new_duel = collection.new_duel().await.unwrap();
-            let home_value: u32 = new_duel.home.parse().unwrap();
-            let guest_value: u32 = new_duel.guest.parse().unwrap();
-            let home_id = new_duel.home_id;
-            let guest_id = new_duel.guest_id;
-            let mut rng = rand::thread_rng();
-            let skew = distribution.sample(&mut rng);
+    for _ in 0..games {
+        let new_duel = collection.new_duel().await.unwrap();
+        let home_value: u32 = new_duel.home.parse().unwrap();
+        let guest_value: u32 = new_duel.guest.parse().unwrap();
+        let home_id = new_duel.home_id;
+        let guest_id = new_duel.guest_id;
+        let skew = distribution.sample(&mut rng);
 
-            let won = {
-                if (home_value as f64 + skew) > guest_value as f64 {
-                    1_f32
-                } else {
-                    0_f32
-                }
-            };
-            let m = Match {
-                home_id,
-                guest_id,
-                won,
-            };
-            collection.insert_match(&m).await;
-        })
-        .await;
+        let won = {
+            if (home_value as f64 + skew) > guest_value as f64 {
+                1_f32
+            } else {
+                0_f32
+            }
+        };
+        let m = Match {
+            home_id,
+            guest_id,
+            won,
+        };
+        collection.insert_match(&m).await;
+    }
     Ok(collection)
 }
 
