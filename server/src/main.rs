@@ -34,6 +34,11 @@ async fn index() -> impl Responder {
     actix_files::NamedFile::open("static/index.html")
 }
 
+#[get("/style.css")]
+async fn style() -> impl Responder {
+    actix_files::NamedFile::open_async("static/picnic.min.css").await
+}
+
 #[get("/matches")]
 async fn return_new_match(
     collection: web::Data<ImageCollection>,
@@ -95,6 +100,7 @@ async fn main() -> Result<()> {
             .service(return_new_match)
             .service(on_new_score)
             .service(actix_files::Files::new("/images", &image_dir))
+            .service(style)
     })
     .keep_alive(std::time::Duration::new(90, 0))
     .bind(&addr)?;

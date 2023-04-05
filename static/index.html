@@ -4,59 +4,86 @@
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1" , charset="UTF-8">
   <title>RegAn</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦋</text></svg>">
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦋</text></svg>">
+  <link rel="stylesheet" href="style.css">
   <style>
     img {
       display: grid;
       margin: auto;
-      width: 92%;
+      width: 80%;
       filter: opacity(20%) blur(8px);
     }
 
-    figcaption {
-      width: 50%;
-      float: left;
-      margin: auto;
+    .active-img:hover,
+    .active-img:active,
+    .active-img:focus {
+      background: rgb(43, 94, 40);
     }
+
 
     body {
       color: white;
       background-color: #282827;
     }
 
+    .card {
+      background-color: #373736;
+      max-width: 95%;
+      margin: auto
+    }
+
+    nav {
+      background-color: #373736;
+    }
+
     .center_btn {
       display: grid;
       width: 300px;
+      background: #85144b;
       margin: auto;
-    }
-
-    .topRight {
-      position: absolute;
-      top: 0%;
-      right: 2%;
     }
   </style>
 </head>
 
 <body onload="loadInitialMatch()">
 
-  <h2>Regression Annotation Tool</h2>
-  <p>Welcome. Please click on the image which looks better.<br>Hotkeys: 'X' left image, 'M' right image, 'B' equal</p>
-  <div class="topRight">
-    <p>Author: Matthias Möller<br>License: <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">AGPL-3.0</a><br><a href="https://github.com/TinyTinni/RegAn">Visit on GitHub</a></p>
-  </div>
+  <nav>
+    <a href="#" class="brand">
+      <span>🦋 Regression Annotation Tool</span>
+    </a>
+
+    <!-- responsive-->
+    <input id="bmenub" type="checkbox" class="show">
+    <label for="bmenub" class="burger pseudo button">About</label>
+
+    <div class="menu">
+      <span>Author: Matthias Möller</span>
+      <a href="https://www.gnu.org/licenses/agpl-3.0.en.html">License: AGPL-3.0</a>
+      <a href="https://github.com/TinyTinni/RegAn">Github</a>
+    </div>
+  </nav>
+
+  <br><br>
+  <p>Welcome. Please click on the image which looks better.<br>Hotkeys: 'X' left image, 'M' right image, 'B'
+    equal</p>
+
+  <button class="center_btn" id="btn_draw" disabled>Equal</button>
+  <div><br></div>
 
 
-  <div class="center_btn">
-    <button class="center_btn" id="btn_draw" , disabled>Equal</button>
-    <div><br></div>
+  <div class="flex one two-500 center">
+    <div>
+      <article class="card active-img"><img src="" id="left_image" data-id onload="fadeIn('left_image')"></article>
+    </div>
+    <div>
+      <article class="card active-img"><img src="" id="right_image" data-id onload="fadeIn('right_image')"></article>
+    </div>
   </div>
 
   <figcaption>
-    <img src="" id="left_image" data-id onload="fadeIn('left_image')">
   </figcaption>
   <figcaption>
-    <img src="" id="right_image" data-id onload="fadeIn('right_image')">
   </figcaption>
 
 
@@ -116,14 +143,13 @@
       document.getElementById("btn_draw").removeEventListener("click", onPlayerClicked)
 
       // get winner
-      switch(event.currentTarget.id)
-      {
+      switch (event.currentTarget.id) {
         case "left_image": winner = 1
-        break;
+          break;
         case "right_image": winner = 0
-        break;
+          break;
         case "btn_draw": winner = 0.5
-        break;
+          break;
       }
 
       // prepare message
@@ -140,18 +166,18 @@
           window.location.reload(true)
         });
     }
-    
+
     // add hotkeys
     document.addEventListener('keydown', function (event) {
-    let click_event = new Event("click");
-    if (event.key == 'x') {
-      document.getElementById("left_image").dispatchEvent(click_event)
-    }else if (event.key == 'm'){
-      document.getElementById("left_image").dispatchEvent(click_event)
-    }else if (event.key == 'b'){
-      document.getElementById("btn_draw").dispatchEvent(click_event)    
-    }
-});
+      let click_event = new Event("click");
+      if (event.key == 'x') {
+        document.getElementById("left_image").dispatchEvent(click_event)
+      } else if (event.key == 'm') {
+        document.getElementById("right_image").dispatchEvent(click_event)
+      } else if (event.key == 'b') {
+        document.getElementById("btn_draw").dispatchEvent(click_event)
+      }
+    });
 
   </script>
 
