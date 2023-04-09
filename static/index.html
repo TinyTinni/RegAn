@@ -12,6 +12,10 @@
       display: grid;
       margin: auto;
       width: 80%;
+      pointer-events: none;
+    }
+
+    active-img{
       filter: opacity(20%) blur(8px);
     }
 
@@ -74,10 +78,10 @@
 
   <div class="flex one two-500 center">
     <div>
-      <article class="card active-img"><img src="" id="left_image" data-id onload="fadeIn('left_image')"></article>
+      <article id="left_area" class="card active-img"><img src="" id="left_image" data-id onload="fadeIn('left')"></article>
     </div>
     <div>
-      <article class="card active-img"><img src="" id="right_image" data-id onload="fadeIn('right_image')"></article>
+      <article id= "right_area" class="card active-img"><img src="" id="right_image" data-id onload="fadeIn('right')"></article>
     </div>
   </div>
 
@@ -89,23 +93,25 @@
 
   <script language="javascript">
 
-    function fadeOut(img) {
-      img.style.filter = "opacity(20%) blur(8px)"
-      img.style.transition = "4s";
-      img.removeEventListener("click", onPlayerClicked)
+    function fadeOut(area) {
+      area.style.filter = "opacity(20%) blur(8px)"
+      area.style.transition = "4s";
+      area.removeEventListener("click", onPlayerClicked)
     }
 
-    function fadeIn(img_str) {
-      img = document.getElementById(img_str)
-      img.style.filter = "opacity(100%) blur(0px)"
-      img.style.transition = "0.75s";
+    function fadeIn(side_str) {
+      area = document.getElementById(side_str+"_area")
+      area.style.filter = "opacity(100%) blur(0px)"
+      area.style.transition = "0.75s";
 
       // if both images are loaded, make them clickable
       left_image = document.getElementById("left_image")
       right_image = document.getElementById("right_image")
       if (left_image.complete && right_image.complete) {
-        left_image.addEventListener("click", onPlayerClicked)
-        right_image.addEventListener("click", onPlayerClicked)
+        left_area = document.getElementById("left_area")
+        right_area = document.getElementById("right_area")
+        left_area.addEventListener("click", onPlayerClicked)
+        right_area.addEventListener("click", onPlayerClicked)
         btn = document.getElementById("btn_draw")
         btn.removeAttribute("disabled")
         btn.addEventListener("click", onPlayerClicked)
@@ -133,20 +139,20 @@
     }
 
     function onPlayerClicked() {
-      left_image = document.getElementById("left_image")
-      right_image = document.getElementById("right_image")
+      left_area = document.getElementById("left_area")
+      right_area = document.getElementById("right_area")
 
       // disable images, prepare for loading
-      fadeOut(left_image)
-      fadeOut(right_image)
+      fadeOut(left_area)
+      fadeOut(right_area)
       document.getElementById("btn_draw").setAttribute("disabled", true)
       document.getElementById("btn_draw").removeEventListener("click", onPlayerClicked)
 
       // get winner
       switch (event.currentTarget.id) {
-        case "left_image": winner = 1
+        case "left_area": winner = 1
           break;
-        case "right_image": winner = 0
+        case "right_area": winner = 0
           break;
         case "btn_draw": winner = 0.5
           break;
@@ -171,9 +177,9 @@
     document.addEventListener('keydown', function (event) {
       let click_event = new Event("click");
       if (event.key == 'x') {
-        document.getElementById("left_image").dispatchEvent(click_event)
+        document.getElementById("left_area").dispatchEvent(click_event)
       } else if (event.key == 'm') {
-        document.getElementById("right_image").dispatchEvent(click_event)
+        document.getElementById("right_area").dispatchEvent(click_event)
       } else if (event.key == 'b') {
         document.getElementById("btn_draw").dispatchEvent(click_event)
       }
