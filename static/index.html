@@ -15,7 +15,7 @@
       pointer-events: none;
     }
 
-    active-img{
+    active-img {
       filter: opacity(20%) blur(8px);
     }
 
@@ -51,7 +51,6 @@
 </head>
 
 <body onload="loadInitialMatch()">
-
   <nav>
     <a href="#" class="brand">
       <span>🦋 Regression Annotation Tool</span>
@@ -67,9 +66,9 @@
       <a href="https://github.com/TinyTinni/RegAn">Github</a>
     </div>
   </nav>
+  <h1></h1>
 
-  <br><br>
-  <p>Welcome. Please click on the image which looks better.<br>Hotkeys: 'X' left image, 'M' right image, 'B'
+  <p>Welcome.<br> Please click on the better looking image.<br>Hotkeys: 'X' left image, 'M' right image, 'B'
     equal</p>
 
   <button class="center_btn" id="btn_draw" disabled>Equal</button>
@@ -78,10 +77,12 @@
 
   <div class="flex one two-500 center">
     <div>
-      <article id="left_area" class="card active-img"><img src="" id="left_image" data-id onload="fadeIn('left')"></article>
+      <article id="left_area" class="card active-img"><img src="" id="left_image" data-id onload="fadeIn('left')">
+      </article>
     </div>
     <div>
-      <article id= "right_area" class="card active-img"><img src="" id="right_image" data-id onload="fadeIn('right')"></article>
+      <article id="right_area" class="card active-img"><img src="" id="right_image" data-id onload="fadeIn('right')">
+      </article>
     </div>
   </div>
 
@@ -100,7 +101,7 @@
     }
 
     function fadeIn(side_str) {
-      area = document.getElementById(side_str+"_area")
+      area = document.getElementById(side_str + "_area")
       area.style.filter = "opacity(100%) blur(0px)"
       area.style.transition = "0.75s";
 
