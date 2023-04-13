@@ -34,12 +34,17 @@ async fn index() -> impl Responder {
     actix_files::NamedFile::open("static/index.html")
 }
 
+#[get("/style.css")]
+async fn style() -> impl Responder {
+    actix_files::NamedFile::open_async("static/picnic.min.css").await
+}
+
 #[get("/matches")]
 async fn return_new_match(
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
     let now = std::time::Instant::now();
-    match collection.get_ref().new_duel().await {
+    match collection.new_duel().await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);
             info!("get matches: {} microseconds", now.elapsed().as_micros());
@@ -58,8 +63,8 @@ async fn on_new_score(
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
     let now = std::time::Instant::now();
-    collection.get_ref().insert_match(&m).await;
-    match collection.get_ref().new_duel().await {
+    collection.insert_match(&m).await;
+    match collection.new_duel().await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);
             info!("post scores: {} microseconds", now.elapsed().as_micros());
@@ -95,6 +100,7 @@ async fn main() -> Result<()> {
             .service(return_new_match)
             .service(on_new_score)
             .service(actix_files::Files::new("/images", &image_dir))
+            .service(style)
     })
     .keep_alive(std::time::Duration::new(90, 0))
     .bind(&addr)?;

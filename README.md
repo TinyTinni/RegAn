@@ -1,8 +1,12 @@
 # RegAn
 
-![banner](/simulation/eval/simulation_banner.gif)
+![banner](/simulation/eval/site_preview.jpg)
 
-A tool to create an annotated set of strict ordered data based on hard to rate images. It will give each image a rating so that they can ordered.
+A tool to create an annotated set of strictly ordered data based on hard to rate images. By doing relational comparisons for each image pair, it is possible to get an ordering with lower bias. 
+It can be used to rate the quality of natural products like the cookies, which cannot fully objectively described.
+The tool automatically selects the next lowest rated image and finds a suitable candidate in order to lower the amount comparisons for the highest ordering certainty (see simulation for details). The rating, uncertainty and comparisons are saved in a SQLite database. 
+
+The frontend is a HTML site which works on desktop and mobile. The server is a simple standalone binary, so it can run almost everywhere. You can host it or run it locally.
 
 
 ## Motivation

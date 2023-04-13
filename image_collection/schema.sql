@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY NOT NULL,
-    name TEXT NOT NULL,
+    name TEXT UNIQUE NOT NULL,
     rating REAL NOT NULL,
     deviation REAL NOT NULL
 );
@@ -12,3 +12,8 @@ CREATE TABLE IF NOT EXISTS matches(
     result REAL NOT NULL,
     timestamp DATE NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_player ON players (id);
+CREATE INDEX IF NOT EXISTS idx_player_rating ON players (rating); 
+CREATE INDEX IF NOT EXISTS idx_player_deviation ON players(deviation);
+

@@ -1,8 +1,7 @@
 use anyhow::Result;
-use futures::StreamExt;
 use clap::Parser;
 use image_collection::{ImageCollection, Match};
-use rand_distr::{Normal, Distribution};
+use rand_distr::{Distribution, Normal};
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -30,37 +29,26 @@ struct Args {
     #[clap(long, default_value_t = false, value_parser)]
     print_timing: bool,
 
-    /// Omit printing resulting CSV 
+    /// Omit printing resulting CSV
     #[clap(long, default_value_t = false, value_parser)]
     no_csv: bool,
 }
 
-#[actix_web::main]
-async fn main() -> Result<()> {
-    env_logger::builder()
-        //.filter_level(log::LevelFilter::Warn)
-        .init();
+async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<ImageCollection> {
+    let collection = ImageCollection::new_pre_configured(samples as u32).await?;
 
-    let args = Args::parse();
+    let distribution = Normal::new(0_f64, std_dev)?;
+    let mut rng = rand::thread_rng();
 
-    // configure db
-    let collection = ImageCollection::new_pre_configured(args.samples as u32).await?;
-
-    let stream = futures::stream::iter(0..args.games);
-    let start = std::time::Instant::now();
-
-    let distribution = Normal::new(0.0 as f64, args.std_dev)?;
-
-    stream.for_each_concurrent(1, |_| async  {
+    for _ in 0..games {
         let new_duel = collection.new_duel().await.unwrap();
         let home_value: u32 = new_duel.home.parse().unwrap();
         let guest_value: u32 = new_duel.guest.parse().unwrap();
         let home_id = new_duel.home_id;
         let guest_id = new_duel.guest_id;
-        let mut rng = rand::thread_rng();
         let skew = distribution.sample(&mut rng);
-        
-        let won = {            
+
+        let won = {
             if (home_value as f64 + skew) > guest_value as f64 {
                 1_f32
             } else {
@@ -73,18 +61,46 @@ async fn main() -> Result<()> {
             won,
         };
         collection.insert_match(&m).await;
-    }).await;
+    }
+    Ok(collection)
+}
 
-    if !args.no_csv
-    {
+#[actix_web::main]
+async fn main() -> Result<()> {
+    env_logger::builder()
+        //.filter_level(log::LevelFilter::Warn)
+        .init();
+
+    let args = Args::parse();
+
+    let start = std::time::Instant::now();
+    let collection = run_simulation(args.samples, args.games, args.std_dev).await?;
+
+    if !args.no_csv {
         collection.print_csv().await?;
     }
 
-    if args.print_timing
-    {
+    if args.print_timing {
         let runs_per_sec = args.games as f64 / start.elapsed().as_secs_f64();
         println!("runs per sec: {}", runs_per_sec);
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod simulation {
+    use super::*;
+    macro_rules! _assert_delta {
+        ($x:expr, $y:expr, $d:expr) => {
+            assert!(($x - $y).abs() < $d && ($y - $x).abs() < $d);
+        };
+    }
+    #[actix_web::test]
+    async fn regression() {
+        // tests if the implemented strategy can help us to keep our MSRE
+        let collection = run_simulation(500, 5000, 50_f64).await.unwrap();
+        let msre = collection.msre().await.unwrap();
+        assert!(msre < 28.0, "msre: {}", msre);
+    }
 }

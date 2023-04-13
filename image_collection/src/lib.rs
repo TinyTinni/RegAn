@@ -65,6 +65,7 @@ impl ImageCollection {
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(3000))
             .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .create_if_missing(true);
 
         let db = sqlx::sqlite::SqlitePoolOptions::new()
@@ -86,6 +87,24 @@ impl ImageCollection {
         })
     }
 
+    pub async fn msre(&self) -> Result<f32> {
+        struct Player {
+            name: String,
+        }
+
+        let players = sqlx::query_as!(Player, "SELECT name FROM players ORDER BY rating")
+            .fetch_all(&self.db)
+            .await?;
+        let mut sqre: f32 = 0.;
+        for i in 0..players.len() {
+            sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)
+                * (players[i].name.parse::<f32>().unwrap() - i as f32);
+        }
+        sqre /= players.len() as f32;
+        sqre = sqre.sqrt();
+        Ok(sqre)
+    }
+
     pub async fn print_csv(&self) -> Result<()> {
         struct Player {
             name: String,
@@ -100,7 +119,7 @@ impl ImageCollection {
         .fetch_all(&self.db)
         .await?;
 
-        println!{"original,rating,deviation"};
+        println! {"original,rating,deviation"};
 
         for p in players.iter() {
             println! {"{},{},{}", &p.name, &p.rating, &p.deviation};
@@ -122,7 +141,8 @@ impl ImageCollection {
             .shared_cache(false)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(3000))
-            .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive);
+            .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
 
         let db = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
@@ -134,7 +154,7 @@ impl ImageCollection {
         sqlx::query_file!("./schema.sql").execute(&db).await?;
 
         // generate numbers
-        let mut numbers : Vec<u32>= (0..num).collect();
+        let mut numbers: Vec<u32> = (0..num).collect();
         let mut rng = rand::thread_rng();
         numbers.shuffle(&mut rng);
 
@@ -147,7 +167,7 @@ impl ImageCollection {
                 ",
                 i
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
         }
         tx.commit().await?;
@@ -244,7 +264,7 @@ async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
         if !std::path::Path::new(&file_path).is_file() {
             info!("Image path \"{}\" does not exists in ", file);
             sqlx::query!("DELETE FROM players WHERE name = ?", file)
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
         }
     }
@@ -260,7 +280,7 @@ async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
                     ",
                     file
                 )
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
             }
         }
@@ -285,14 +305,14 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         "SELECT rating, deviation FROM players WHERE id = ?",
         m.home_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
     let rt_guest = sqlx::query_as!(
         Rating,
         "SELECT rating, deviation FROM players WHERE id = ?",
         m.guest_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     let rth = glicko::Rating {
@@ -313,7 +333,7 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         rth_new.deviation,
         m.home_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     sqlx::query!(
         "UPDATE players SET rating = ?, deviation = ? WHERE id = ?",
@@ -321,7 +341,7 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         rtg_new.deviation,
         m.guest_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     // insert the new match
@@ -331,7 +351,7 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         m.guest_id,
         m.won
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -339,21 +359,79 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     Ok(())
 }
 
-async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<Duel>> {
-    struct Player {
-        id: i64,
-        rating: f64,
-        deviation: f64,
-        name: String,
+struct Player {
+    id: i64,
+    rating: f64,
+    deviation: f64,
+    name: String,
+}
+
+async fn select_random_player_uniform(db: &SqlitePool, home_id: &Player) -> Result<Player> {
+    let all = sqlx::query_scalar!("SELECT COUNT(*) FROM players")
+        .fetch_one(db)
+        .await?;
+    let rnd = {
+        let mut rng = rand::thread_rng();
+        let distr = rand::distributions::Uniform::new(0, all - 1);
+        rng.sample(distr)
+    };
+    let random_id = sqlx::query_as!(
+        Player,
+        "SELECT id, rating, deviation, name FROM players
+        WHERE id != $1 LIMIT 1 OFFSET $2",
+        home_id.id,
+        rnd
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(random_id)
+}
+
+/// always the best performing strategy
+async fn select_random_player(db: &SqlitePool, home_id: &Player) -> Result<Player> {
+    // matchmaking
+    // todo: make some smulations of different matchmakings?
+    let upper = home_id.rating + 0.96 * home_id.deviation;
+    let lower = home_id.rating - 0.96 * home_id.deviation;
+
+    let random_id = sqlx::query_as!(
+        Player,
+        // "SELECT id, rating, deviation, name FROM players
+        // WHERE id IN (SELECT id FROM players
+        //    WHERE id != $1 AND
+        //    rating <= $2 AND
+        //    rating >= $3
+        //    ORDER BY RANDOM() LIMIT 1)",
+        "SELECT id, rating, deviation, name FROM players
+            WHERE id IN (SELECT id FROM players
+                WHERE id != $1 AND
+                rating <= $2 AND
+                rating >= $3
+                LIMIT 1 OFFSET (ABS(RANDOM()) % (SELECT COUNT(*)
+                    FROM players WHERE id != $1 AND
+                    rating <= $2 AND
+                    rating >= $3))
+                )",
+        home_id.id,
+        upper,
+        lower
+    )
+    .fetch_one(db)
+    .await;
+
+    match random_id {
+        Ok(r) => Ok(r),
+        _ => select_random_player_uniform(db, home_id).await,
     }
+}
+
+async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<Duel>> {
     let n_matches = n_matches as u32;
     let home_players = sqlx::query_as!(
         Player,
-        "SELECT id, rating, deviation AS deviation, name FROM players WHERE 
-             id IN 
-               (SELECT id FROM players 
+        "SELECT id, rating, deviation, name FROM players 
                 ORDER BY deviation DESC 
-                LIMIT ?)",
+                LIMIT ?",
         n_matches
     )
     .fetch_all(db)
@@ -362,50 +440,14 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
-        // matchmaking
-        // todo: make some smulations of different matchmakings?
-        let upper = home_id.rating + 0.96 * home_id.deviation;
-        let lower = home_id.rating - 0.96 * home_id.deviation;
-
-        match sqlx::query_as!(
-            Player,
-            "SELECT id, rating, deviation, name FROM players 
-             WHERE id IN (SELECT id FROM players 
-                WHERE id != $1 AND
-                rating <= $2 AND
-                rating >= $3
-                ORDER BY RANDOM() LIMIT 10) ORDER BY deviation DESC",
-            home_id.id,
-            upper,
-            lower
-        )
-        .fetch_one(db)
-        .await
-        {
-            Ok(guest_id) => result.push(Duel {
+        if let Ok(guest) = select_random_player(&db, &home_id).await {
+            result.push(Duel {
                 home: home_id.name,
                 home_id: home_id.id as u32,
-                guest: guest_id.name,
-                guest_id: guest_id.id as u32,
-            }),
-            _ => {
-                let random_id = sqlx::query_as!(
-                    Player,
-                        "SELECT id, rating, deviation, name FROM players
-                        WHERE id != $1 ORDER BY RANDOM()",
-                    home_id.id
-                )
-                .fetch_one(db)
-                .await?;
-                result.push(Duel {
-                    home: home_id.name,
-                    home_id: home_id.id as u32,
-                    guest: random_id.name,
-                    guest_id: random_id.id as u32,
-                })
-            }
-        };
+                guest: guest.name,
+                guest_id: guest.id as u32,
+            });
+        }
     }
-
     Ok(result)
 }
