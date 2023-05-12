@@ -2,6 +2,8 @@
 
 ![banner](/simulation/eval/site_preview.jpg)
 
+[![Rust](https://github.com/TinyTinni/RegAn/actions/workflows/rust.yml/badge.svg)](https://github.com/TinyTinni/RegAn/actions/workflows/rust.yml)
+
 A tool to create an annotated set of strictly ordered data based on hard to rate images. By doing relational comparisons for each image pair, it is possible to get an ordering with lower bias. 
 It can be used to rate the quality of natural products like the cookies, which cannot fully objectively described.
 The tool automatically selects the next lowest rated image and finds a suitable candidate in order to lower the amount comparisons for the highest ordering certainty (see simulation for details). The rating, uncertainty and comparisons are saved in a SQLite database. 
