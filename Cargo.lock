@@ -1032,7 +1032,7 @@ dependencies = [
 
 [[package]]
 name = "image_collection"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "crossbeam",
@@ -1632,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actix-files",
  "actix-web",
@@ -1688,7 +1688,7 @@ dependencies = [
 
 [[package]]
 name = "simulation"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actix-web",
  "anyhow",

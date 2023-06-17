@@ -24,6 +24,16 @@ The server provides a platform for comparing images. It will select images from 
 
 The matchmaking strategy of the server tries to select those images with the highest uncertainty about their rank.
 
+#### Server with Docker
+A Dockerfile is provided for people who want to use docker for hosting the server.  
+You have to define volumes for the input images (at least read access) and a directoy, where the sqlite database is written.  
+Also, port publish is also needed.  
+An example on how to run it with docker where `YOUR_DIRECTOY/images` contains images
+```
+docker build -t regan .
+docker run -v <YOUR_DIRECTORY>:/var/regan/ -p <HOST_PORT>:80/tcp regan
+```
+
 #### Parameters
 Use `--help` to see the parameter documentation
 
