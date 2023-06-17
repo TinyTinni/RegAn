@@ -59,7 +59,7 @@ pub struct Match {
 }
 
 impl ImageCollection {
-    pub async fn new(options: &ImageCollectionOptions) -> Result<ImageCollection> {
+    pub async fn new(options: &ImageCollectionOptions, image_dir: &String) -> Result<ImageCollection> {
         let db_opions = sqlx::sqlite::SqliteConnectOptions::from_str(&options.db_path)?
             .shared_cache(false)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
@@ -73,7 +73,7 @@ impl ImageCollection {
             .connect_with(db_opions)
             .await?;
         sqlx::query_file!("./schema.sql").execute(&db).await?;
-        check_db_integrity(&db).await?;
+        check_db_integrity(&db, &image_dir).await?;
         let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(options.candidate_buffer));
         let new_duels = calculate_new_matches(&db, candidates.capacity()).await?;
         for nd in new_duels.into_iter() {
@@ -124,14 +124,6 @@ impl ImageCollection {
         for p in players.iter() {
             println! {"{},{},{}", &p.name, &p.rating, &p.deviation};
         }
-        //let mut sqre: f32 = 0.;
-        //for i in 0..players.len() {
-        //    sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)
-        //        * (players[i].name.parse::<f32>().unwrap() - i as f32);
-        //}
-        //sqre /= players.len() as f32;
-        //sqre = sqre.sqrt();
-        //println!("MSRE: {}", sqre);
 
         Ok(())
     }
@@ -248,8 +240,7 @@ impl ImageCollection {
     }
 }
 
-async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
-    let path = "images";
+async fn check_db_integrity(db: &SqlitePool, image_dir: &String) -> Result<()> {
     let db_files = sqlx::query!("SELECT name FROM players")
         .fetch_all(db)
         .await?;
@@ -260,7 +251,7 @@ async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
 
     // check if all files in db exists in fs
     for file in &db_files {
-        let file_path = format!("{}/{}", path, file);
+        let file_path = format!("{}/{}", image_dir, file);
         if !std::path::Path::new(&file_path).is_file() {
             info!("Image path \"{}\" does not exists in ", file);
             sqlx::query!("DELETE FROM players WHERE name = ?", file)
@@ -269,7 +260,7 @@ async fn check_db_integrity(db: &SqlitePool) -> Result<()> {
         }
     }
 
-    for entry in std::fs::read_dir(path)? {
+    for entry in std::fs::read_dir(image_dir)? {
         if let Some(file) = entry?.file_name().to_str() {
             if !db_files.contains(file) {
                 info!("Add \"{}\" to database.", file);

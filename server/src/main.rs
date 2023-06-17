@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
         db_path: args.output,
         candidate_buffer: args.queue_buffer,
     };
-    let img_col = ImageCollection::new(&options).await?;
+    let img_col = ImageCollection::new(&options, &args.image_dir).await?;
 
     let addr = format!("0.0.0.0:{}", args.port);
     let image_dir = args.image_dir;
