@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
     };
     let img_col = ImageCollection::new(&options, &args.image_dir).await?;
 
-    let addr = format!("0.0.0.0:{}", args.port);
+    let addr = format!("[::]:{}", args.port);
     let image_dir = args.image_dir;
     let server = HttpServer::new(move || {
         App::new()
