@@ -73,7 +73,7 @@ impl ImageCollection {
             .connect_with(db_opions)
             .await?;
         sqlx::query_file!("./schema.sql").execute(&db).await?;
-        check_db_integrity(&db, &image_dir).await?;
+        check_db_integrity(&db, image_dir).await?;
         let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(options.candidate_buffer));
         let new_duels = calculate_new_matches(&db, candidates.capacity()).await?;
         for nd in new_duels.into_iter() {
@@ -96,9 +96,9 @@ impl ImageCollection {
             .fetch_all(&self.db)
             .await?;
         let mut sqre: f32 = 0.;
-        for i in 0..players.len() {
-            sqre += (players[i].name.parse::<f32>().unwrap() - i as f32)
-                * (players[i].name.parse::<f32>().unwrap() - i as f32);
+        for (i, player) in players.iter().enumerate() {
+            sqre += (player.name.parse::<f32>().unwrap() - i as f32)
+                * (player.name.parse::<f32>().unwrap() - i as f32);
         }
         sqre /= players.len() as f32;
         sqre = sqre.sqrt();
@@ -172,12 +172,10 @@ impl ImageCollection {
     }
 
     /// informs the system about the result of a played match
-    pub async fn insert_match(&self, m: &Match) -> () {
+    pub async fn insert_match(&self, m: Match) {
         let db = self.db.clone();
         let can_queue = self.candidates.clone();
-        let m = m.clone();
         let db_update_in_progress = self.db_update_in_progress.clone();
-
         tokio::spawn(async move {
             let now = std::time::Instant::now();
             match update_rating(&db, &m).await {
@@ -188,27 +186,22 @@ impl ImageCollection {
                 ),
             };
 
-            if can_queue.len() < (can_queue.capacity() / 2) {
-                if db_update_in_progress
-                    .compare_exchange(
-                        false,
-                        true,
-                        std::sync::atomic::Ordering::Acquire,
-                        std::sync::atomic::Ordering::Relaxed,
-                    )
-                    .is_ok()
-                {
+            if can_queue.len() < (can_queue.capacity() / 2) && db_update_in_progress
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::Acquire,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_ok() {
                     info!("refresh duel queue");
                     let now = std::time::Instant::now();
-                    match calculate_new_matches(&db, can_queue.capacity()).await {
-                        Ok(new_duels) => {
+                    if let Ok(new_duels) = calculate_new_matches(&db, can_queue.capacity()).await {
                             // ignore if queue is full
                             for nd in new_duels.into_iter().skip(can_queue.len() + 1) {
                                 let _ = can_queue.push(nd); // ignore output
                             }
                         }
-                        _ => {}
-                    }
                     info!(
                         "refresh duel queue done in {} microseconds. Current size: {}",
                         now.elapsed().as_millis(),
@@ -216,23 +209,23 @@ impl ImageCollection {
                     );
                     db_update_in_progress.store(false, std::sync::atomic::Ordering::Release);
                 }
-            }
+            
         });
     }
 
     /// requests a new duel which needs to be played
     pub async fn new_duel(&self) -> Result<Duel> {
         match self.candidates.pop() {
-            Some(duel) => return Ok(duel),
+            Some(duel) => Ok(duel),
             None => {
                 warn!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
                 //todo: use a cell on candidate_queue to increase its capacity
                 // calculate new matches full on it
                 let duels = calculate_new_matches(&self.db, 3).await?;
                 if !duels.is_empty() {
-                    return Ok(duels.into_iter().nth(0).unwrap());
+                    Ok(duels.into_iter().nth(0).unwrap())
                 } else {
-                    return Err(anyhow::Error::msg("No Candidates found.".to_owned()));
+                    Err(anyhow::Error::msg("No Candidates found.".to_owned()))
                     //TODO try to compute new ones
                 }
             }
@@ -431,7 +424,7 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
-        if let Ok(guest) = select_random_player(&db, &home_id).await {
+        if let Ok(guest) = select_random_player(db, &home_id).await {
             result.push(Duel {
                 home: home_id.name,
                 home_id: home_id.id as u32,

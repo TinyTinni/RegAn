@@ -63,7 +63,7 @@ async fn on_new_score(
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
     let now = std::time::Instant::now();
-    collection.insert_match(&m).await;
+    collection.insert_match(m.to_owned()).await;
     match collection.new_duel().await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);

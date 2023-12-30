@@ -60,7 +60,7 @@ async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<Im
             guest_id,
             won,
         };
-        collection.insert_match(&m).await;
+        collection.insert_match(m).await;
     }
     Ok(collection)
 }
