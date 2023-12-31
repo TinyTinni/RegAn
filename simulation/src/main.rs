@@ -42,8 +42,8 @@ async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<Im
 
     for _ in 0..games {
         let new_duel = collection.new_duel().await.unwrap();
-        let home_value: u32 = new_duel.home.parse().unwrap();
-        let guest_value: u32 = new_duel.guest.parse().unwrap();
+        let home_value = new_duel.home.parse::<u32>().unwrap();
+        let guest_value = new_duel.guest.parse::<u32>().unwrap();
         let home_id = new_duel.home_id;
         let guest_id = new_duel.guest_id;
         let skew = distribution.sample(&mut rng);

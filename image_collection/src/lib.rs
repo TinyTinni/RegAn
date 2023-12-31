@@ -59,7 +59,10 @@ pub struct Match {
 }
 
 impl ImageCollection {
-    pub async fn new(options: &ImageCollectionOptions, image_dir: &String) -> Result<ImageCollection> {
+    pub async fn new(
+        options: &ImageCollectionOptions,
+        image_dir: &String,
+    ) -> Result<ImageCollection> {
         let db_opions = sqlx::sqlite::SqliteConnectOptions::from_str(&options.db_path)?
             .shared_cache(false)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
@@ -95,13 +98,18 @@ impl ImageCollection {
         let players = sqlx::query_as!(Player, "SELECT name FROM players ORDER BY rating")
             .fetch_all(&self.db)
             .await?;
-        let mut sqre: f32 = 0.;
-        for (i, player) in players.iter().enumerate() {
-            sqre += (player.name.parse::<f32>().unwrap() - i as f32)
-                * (player.name.parse::<f32>().unwrap() - i as f32);
+        let mut sqre = 0_f32;
+        let mut len = 0_f32;
+        for (i, rank) in players
+            .iter()
+            .filter_map(|player| player.name.parse::<f32>().ok())
+            .enumerate()
+        {
+            let rankdiff = rank - i as f32;
+            sqre += rankdiff * rankdiff;
+            len += 1_f32;
         }
-        sqre /= players.len() as f32;
-        sqre = sqre.sqrt();
+        sqre = (sqre / len).sqrt();
         Ok(sqre)
     }
 
@@ -186,48 +194,45 @@ impl ImageCollection {
                 ),
             };
 
-            if can_queue.len() < (can_queue.capacity() / 2) && db_update_in_progress
-            .compare_exchange(
-                false,
-                true,
-                std::sync::atomic::Ordering::Acquire,
-                std::sync::atomic::Ordering::Relaxed,
-            )
-            .is_ok() {
-                    info!("refresh duel queue");
-                    let now = std::time::Instant::now();
-                    if let Ok(new_duels) = calculate_new_matches(&db, can_queue.capacity()).await {
-                            // ignore if queue is full
-                            for nd in new_duels.into_iter().skip(can_queue.len() + 1) {
-                                let _ = can_queue.push(nd); // ignore output
-                            }
-                        }
-                    info!(
-                        "refresh duel queue done in {} microseconds. Current size: {}",
-                        now.elapsed().as_millis(),
-                        can_queue.len()
-                    );
-                    db_update_in_progress.store(false, std::sync::atomic::Ordering::Release);
+            if can_queue.len() < (can_queue.capacity() / 2)
+                && db_update_in_progress
+                    .compare_exchange(
+                        false,
+                        true,
+                        std::sync::atomic::Ordering::Acquire,
+                        std::sync::atomic::Ordering::Relaxed,
+                    )
+                    .is_ok()
+            {
+                info!("refresh duel queue");
+                let now = std::time::Instant::now();
+                if let Ok(new_duels) = calculate_new_matches(&db, can_queue.capacity()).await {
+                    // ignore if queue is full
+                    for nd in new_duels.into_iter().skip(can_queue.len() + 1) {
+                        let _ = can_queue.push(nd); // ignore output
+                    }
                 }
-            
+                info!(
+                    "refresh duel queue done in {} microseconds. Current size: {}",
+                    now.elapsed().as_millis(),
+                    can_queue.len()
+                );
+                db_update_in_progress.store(false, std::sync::atomic::Ordering::Release);
+            }
         });
     }
 
     /// requests a new duel which needs to be played
     pub async fn new_duel(&self) -> Result<Duel> {
-        match self.candidates.pop() {
-            Some(duel) => Ok(duel),
-            None => {
-                warn!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
-                //todo: use a cell on candidate_queue to increase its capacity
-                // calculate new matches full on it
-                let duels = calculate_new_matches(&self.db, 3).await?;
-                if !duels.is_empty() {
-                    Ok(duels.into_iter().nth(0).unwrap())
-                } else {
-                    Err(anyhow::Error::msg("No Candidates found.".to_owned()))
-                    //TODO try to compute new ones
-                }
+        if let Some(duel) = self.candidates.pop() {
+            Ok(duel)
+        } else {
+            warn!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
+            let duels = calculate_new_matches(&self.db, 3).await?;
+            if let Some(duel) = duels.into_iter().nth(0) {
+                Ok(duel)
+            } else {
+                anyhow::bail!("No Candidates found.")
             }
         }
     }
