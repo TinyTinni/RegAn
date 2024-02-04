@@ -77,7 +77,22 @@ impl ImageCollection {
             .await?;
         sqlx::query_file!("./schema.sql").execute(&db).await?;
         check_db_integrity(&db, image_dir).await?;
-        let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(options.candidate_buffer));
+        let (max_players,): (i64,) = sqlx::query_as("SELECT COUNT(*) as count FROM players")
+            .fetch_one(&db)
+            .await?;
+        let max_players = max_players as usize;
+
+        let candidate_buffer = {
+            if max_players > options.candidate_buffer {
+                options.candidate_buffer
+            } else {
+                let new_buffer = std::cmp::min(3, max_players);
+                warn!("Max players exceeds candidate buffer. Lowering candidate buffer to {}. Player count: {}",new_buffer, max_players);
+                new_buffer
+            }
+        };
+
+        let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(candidate_buffer));
         let new_duels = calculate_new_matches(&db, candidates.capacity()).await?;
         for nd in new_duels.into_iter() {
             let _ = candidates.push(nd);
@@ -188,10 +203,7 @@ impl ImageCollection {
             let now = std::time::Instant::now();
             match update_rating(&db, &m).await {
                 Err(err) => error!("Error during updating ratings {}", err),
-                Ok(_) => info!(
-                    "Insert update done in {} microseconds",
-                    now.elapsed().as_micros()
-                ),
+                Ok(_) => info!("Insert update done in {}ms", now.elapsed().as_millis()),
             };
 
             if can_queue.len() < (can_queue.capacity() / 2)
@@ -232,7 +244,7 @@ impl ImageCollection {
             if let Some(duel) = duels.into_iter().nth(0) {
                 Ok(duel)
             } else {
-                anyhow::bail!("No Candidates found.")
+                anyhow::bail!("No candidates found.")
             }
         }
     }
@@ -429,6 +441,7 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
+        info!("Selected: {}", home_id.name);
         if let Ok(guest) = select_random_player(db, &home_id).await {
             result.push(Duel {
                 home: home_id.name,

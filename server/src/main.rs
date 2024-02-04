@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate log;
 
 use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
@@ -43,17 +42,12 @@ async fn style() -> impl Responder {
 async fn return_new_match(
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
-    let now = std::time::Instant::now();
     match collection.new_duel().await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);
-            info!("get matches: {} microseconds", now.elapsed().as_micros());
             Ok(payload)
         }
-        Err(err) => {
-            info!("get matches: {} microseconds", now.elapsed().as_micros());
-            Err(error::ErrorBadRequest(err.to_string()))
-        }
+        Err(err) => Err(error::ErrorBadRequest(err.to_string())),
     }
 }
 
@@ -62,25 +56,20 @@ async fn on_new_score(
     m: actix_web::web::Json<Match>,
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
-    let now = std::time::Instant::now();
     collection.insert_match(m.to_owned()).await;
     match collection.new_duel().await {
         Ok(new_duel) => {
             let payload = HttpResponse::Ok().json(new_duel);
-            info!("post scores: {} microseconds", now.elapsed().as_micros());
             Ok(payload)
         }
-        Err(err) => {
-            info!("get matches: {} microseconds", now.elapsed().as_micros());
-            Err(error::ErrorBadRequest(err.to_string()))
-        }
+        Err(err) => Err(error::ErrorBadRequest(err.to_string())),
     }
 }
 
 #[actix_web::main]
 async fn main() -> Result<()> {
     env_logger::builder()
-        //.filter_level(log::LevelFilter::Info)
+        .filter_level(log::LevelFilter::Info)
         .init();
 
     let args = Args::parse();
@@ -96,6 +85,7 @@ async fn main() -> Result<()> {
     let server = HttpServer::new(move || {
         App::new()
             .app_data(actix_web::web::Data::new(img_col.clone()))
+            .wrap(actix_web::middleware::Logger::new("%r - %s - %Dms"))
             .service(index)
             .service(return_new_match)
             .service(on_new_score)

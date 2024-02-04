@@ -65,7 +65,7 @@ async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<Im
     Ok(collection)
 }
 
-#[actix_web::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     env_logger::builder()
         //.filter_level(log::LevelFilter::Warn)
@@ -96,7 +96,7 @@ mod simulation {
             assert!(($x - $y).abs() < $d && ($y - $x).abs() < $d);
         };
     }
-    #[actix_web::test]
+    #[tokio::test]
     async fn regression() {
         // tests if the implemented strategy can help us to keep our MSRE
         let collection = run_simulation(500, 5000, 50_f64).await.unwrap();
