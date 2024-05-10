@@ -43,10 +43,7 @@ async fn return_new_match(
     collection: web::Data<ImageCollection>,
 ) -> actix_web::Result<HttpResponse> {
     match collection.new_duel().await {
-        Ok(new_duel) => {
-            let payload = HttpResponse::Ok().json(new_duel);
-            Ok(payload)
-        }
+        Ok(new_duel) => Ok(HttpResponse::Ok().json(new_duel)),
         Err(err) => Err(error::ErrorBadRequest(err.to_string())),
     }
 }
@@ -58,10 +55,7 @@ async fn on_new_score(
 ) -> actix_web::Result<HttpResponse> {
     collection.insert_match(m.to_owned()).await;
     match collection.new_duel().await {
-        Ok(new_duel) => {
-            let payload = HttpResponse::Ok().json(new_duel);
-            Ok(payload)
-        }
+        Ok(new_duel) => Ok(HttpResponse::Ok().json(new_duel)),
         Err(err) => Err(error::ErrorBadRequest(err.to_string())),
     }
 }
