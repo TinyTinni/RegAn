@@ -92,7 +92,8 @@ impl ImageCollection {
             }
         };
 
-        let candidates = std::sync::Arc::new(ArrayQueue::<Duel>::new(candidate_buffer));
+        let candidates = ArrayQueue::<Duel>::new(std::cmp::max(1, candidate_buffer));
+        let candidates = std::sync::Arc::new(candidates);
         let new_duels = calculate_new_matches(&db, candidates.capacity()).await?;
         for nd in new_duels.into_iter() {
             let _ = candidates.push(nd);
