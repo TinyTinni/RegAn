@@ -66,9 +66,14 @@ impl ImageCollection {
         let db_opions = sqlx::sqlite::SqliteConnectOptions::from_str(&options.db_path)?
             .shared_cache(false)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-            .busy_timeout(std::time::Duration::from_secs(3000))
+            .busy_timeout(std::time::Duration::from_secs(5000))
             .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .foreign_keys(true)
+            .pragma("temp_store", "MEMORY")
+            .pragma("mmap_size", "134217728")
+            .pragma("journal_size_limit", "67108864")
+            .pragma("cache_size", "2000")
             .create_if_missing(true);
 
         let db = sqlx::sqlite::SqlitePoolOptions::new()
@@ -158,7 +163,12 @@ impl ImageCollection {
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(3000))
             .locking_mode(sqlx::sqlite::SqliteLockingMode::Exclusive)
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .foreign_keys(true)
+            .pragma("temp_store", "MEMORY")
+            .pragma("mmap_size", "134217728")
+            .pragma("journal_size_limit", "67108864")
+            .pragma("cache_size", "2000");
 
         let db = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
