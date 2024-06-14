@@ -252,7 +252,10 @@ impl ImageCollection {
         } else {
             warn!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
             let duels = calculate_new_matches(&self.db, 3).await?;
-            duels.into_iter().nth(0).ok_or(anyhow::anyhow!("No candidates found"))
+            duels
+                .into_iter()
+                .nth(0)
+                .ok_or(anyhow::anyhow!("No candidates found"))
         }
     }
 }
