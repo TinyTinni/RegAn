@@ -34,7 +34,8 @@ pub fn new_rating(
     time: usize,
     decay_factor: f64,
 ) -> Rating {
-    let rd = time_decay(r_home.deviation, time, decay_factor);
+    let time_delta = (time - r_home.time).max(0);
+    let rd = time_decay(r_home.deviation, time_delta, decay_factor);
     let g_rdi = g_rd(r_other.deviation);
     let e = e_f(r_home.rating, r_other.rating, r_other.deviation);
     let d_sqr_inv = Q_COEFF_SQR * g_rdi * g_rdi * e * (1_f64 - e);
