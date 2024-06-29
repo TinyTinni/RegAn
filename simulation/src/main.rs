@@ -101,6 +101,6 @@ mod simulation {
         // tests if the implemented strategy can help us to keep our MSRE
         let collection = run_simulation(500, 5000, 50_f64).await.unwrap();
         let msre = collection.msre().await.unwrap();
-        assert!(msre < 28.0, "msre: {}", msre);
+        assert!(msre < 25.5, "msre: {}", msre);
     }
 }

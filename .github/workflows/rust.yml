@@ -14,18 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build
-    - name: Run tests
-      run: cargo test
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
           components: clippy, rustfmt
-      - run: cargo fmt --all -- --check
-      - run: cargo check
-      - run: cargo clippy
+    - run: cargo build
+    - run: cargo test
+    - run: cargo fmt --all -- --check
+    - run: cargo check
+    - run: cargo clippy
+      
+        
