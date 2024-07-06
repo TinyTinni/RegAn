@@ -59,7 +59,7 @@ pub struct Match {
 }
 
 impl ImageCollection {
-    pub async fn close(&self){
+    pub async fn close(&self) {
         self.db.close().await //async, can therefore not implemented in drop
     }
 
