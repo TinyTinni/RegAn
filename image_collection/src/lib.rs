@@ -59,6 +59,10 @@ pub struct Match {
 }
 
 impl ImageCollection {
+    pub async fn close(&self){
+        self.db.close().await //async, can therefore not implemented in drop
+    }
+
     pub async fn new(
         options: &ImageCollectionOptions,
         image_dir: &String,

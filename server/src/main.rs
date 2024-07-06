@@ -76,9 +76,10 @@ async fn main() -> Result<()> {
 
     let addr = format!("[::]:{}", args.port);
     let image_dir = args.image_dir;
+    let img_col_closure = img_col.clone();
     let server = HttpServer::new(move || {
         App::new()
-            .app_data(actix_web::web::Data::new(img_col.clone()))
+            .app_data(actix_web::web::Data::new(img_col_closure.clone()))
             .wrap(actix_web::middleware::Logger::new("%r - %s - %Dms"))
             .service(index)
             .service(return_new_match)
@@ -91,5 +92,6 @@ async fn main() -> Result<()> {
 
     println!("Start Server on {}.", &addr);
     server.run().await?;
+    img_col.close().await;
     Ok(())
 }
