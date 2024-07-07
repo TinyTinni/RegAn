@@ -240,7 +240,7 @@ impl ImageCollection {
                     }
                 }
                 info!(
-                    "refresh duel queue done in {} microseconds. Current size: {}",
+                    "refresh duel queue done in {}ms. Current size: {}",
                     now.elapsed().as_millis(),
                     can_queue.len()
                 );
