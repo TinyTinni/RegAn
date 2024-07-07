@@ -44,6 +44,14 @@ The server will use images provided in a `images` subdirectory. Later on, you ca
 All games and the current ranking of each image is saved in an SQLite database. Default is currently the `out.db` file,
 but can be changed with `-o` parameter. Using SQLite allows the server to run locally when the images are present, e.g. you can run the whole server from an USB stick.
 
+#### Enable logging
+
+Logging can be enabled via `RUST_LOG`.
+For example:
+- `RUST_LOG=info` enables all info logging
+- `RUST_LOG=actix=info` enables logging of the requests
+- `RUST_LOG=image_collection=info` enables logging for the image selection and matchmaking
+
 
 ### Simulator
 One recurring question is, how many games are required to get to an acceptable level of error in the ranking. This can be calculated using the simulator. The simulator generates N many samples with strict and known order (the numbers 1..N). As the we know the order already, the simulator can play games and always choose a winner (a<b => b is the winner).

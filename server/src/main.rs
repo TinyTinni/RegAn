@@ -63,7 +63,7 @@ async fn on_new_score(
 #[actix_web::main]
 async fn main() -> Result<()> {
     env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
+        //.filter_level(log::LevelFilter::Info)
         .init();
 
     let args = Args::parse();
