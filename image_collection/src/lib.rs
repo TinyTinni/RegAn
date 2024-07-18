@@ -1,10 +1,4 @@
 #[macro_use]
-extern crate log;
-extern crate crossbeam;
-extern crate sqlx;
-extern crate tokio;
-extern crate tokio_stream;
-
 mod glicko;
 
 use anyhow::Result;
@@ -15,6 +9,7 @@ use std::str::FromStr;
 use tokio_stream::StreamExt;
 
 use rand::prelude::*;
+use log::*;
 
 #[derive(Clone)]
 pub struct ImageCollection {

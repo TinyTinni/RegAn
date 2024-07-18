@@ -1,5 +1,3 @@
-extern crate log;
-
 use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
 use clap::Parser;
