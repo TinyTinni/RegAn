@@ -8,8 +8,8 @@ use sqlx::SqlitePool;
 use std::str::FromStr;
 use tokio_stream::StreamExt;
 
-use rand::prelude::*;
 use log::*;
+use rand::prelude::*;
 
 #[derive(Clone)]
 pub struct ImageCollection {
