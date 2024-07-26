@@ -2,7 +2,7 @@
 mod glicko;
 
 use anyhow::Result;
-use crossbeam::queue::ArrayQueue;
+use crossbeam_queue::ArrayQueue;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::str::FromStr;

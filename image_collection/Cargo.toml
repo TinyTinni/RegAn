@@ -12,12 +12,10 @@ test = true
 [dependencies]
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
-crossbeam = { workspace = true }
+crossbeam-queue = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-futures = { workspace = true }
 rand = { workspace = true }
 sqlx = { workspace = true }
-env_logger = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
