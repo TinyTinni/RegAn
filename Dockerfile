@@ -1,13 +1,13 @@
 ####################################################################################################
 ## Builder
 ####################################################################################################
-FROM rust:1.79 AS builder
+FROM rust:1.80 AS builder
 
 RUN rustup target add x86_64-unknown-linux-musl
 RUN apt update && apt install -y musl-tools musl-dev
 
 RUN addgroup --gid 10001 --system nonroot \
- && adduser  --uid 10000 --system --ingroup nonroot --home /home/nonroot nonroot
+     && adduser  --uid 10000 --system --ingroup nonroot --home /home/nonroot nonroot
 
 WORKDIR /regan
 

@@ -11,6 +11,6 @@ actix-files = { workspace = true }
 clap = { workspace = true }
 rand = { workspace = true }
 env_logger = { workspace = true }
-log = { workspace = true }
+tracing = { workspace = true }
 anyhow = { workspace = true }
 image_collection = { path = "../image_collection" }

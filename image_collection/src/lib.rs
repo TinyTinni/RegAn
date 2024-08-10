@@ -8,8 +8,8 @@ use sqlx::SqlitePool;
 use std::str::FromStr;
 use tokio_stream::StreamExt;
 
-use log::*;
 use rand::prelude::*;
+use tracing::*;
 
 #[derive(Clone)]
 pub struct ImageCollection {
@@ -89,10 +89,12 @@ impl ImageCollection {
         let candidate_buffer = {
             if max_players > options.candidate_buffer {
                 options.candidate_buffer
-            } else {
+            } else if options.candidate_buffer >= 3 {
                 let new_buffer = std::cmp::min(3, max_players);
                 warn!("Max players exceeds candidate buffer. Lowering candidate buffer to {}. Player count: {}",new_buffer, max_players);
                 new_buffer
+            } else {
+                1
             }
         };
 
@@ -450,8 +452,8 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
-        info!("Selected: {}", home_id.name);
         if let Ok(guest) = select_random_player(db, &home_id).await {
+            info!("Selected: {} - {}", home_id.name, guest.name);
             result.push(Duel {
                 home: home_id.name,
                 home_id: home_id.id as u32,
