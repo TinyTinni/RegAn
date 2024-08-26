@@ -62,7 +62,7 @@ One example is shown here:
 Here, each image has a rank at the beginning (1-500), their are initially randomly ordered. You can say, that after 4000 games, the MSRE is at around 25. You can decide now, if the precision is good enough or if it is too much and you
 can also perform other tasks with less games. The yellow bar indicates the uncertainty of the ranking.
 
-Furthermore, you can linearize those ratings and rank all the images. You just order them from lowest to highest ranting and assume that the difference between each rating is equal. Therefor, you would get something that looks like this:
+Furthermore, you can linearize those ratings and rank all the images. You just order them from lowest to highest rating and assume that the difference between each rating is equal. Doing this, you would get something that looks like this:
 ![linear](/simulation/eval/simulation_linear.gif)
 
 ### Simulator options and further information
