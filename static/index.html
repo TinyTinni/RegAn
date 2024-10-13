@@ -47,6 +47,14 @@
       background: #85144b;
       margin: auto;
     }
+
+    .main>section {
+      background: #fff;
+      text-align: left;
+      width: 90%;
+      margin: 0 auto;
+      padding: 80px 0 0;
+    }
   </style>
 </head>
 
@@ -66,31 +74,37 @@
       <a href="https://github.com/TinyTinni/RegAn">Github</a>
     </div>
   </nav>
-  <h1></h1>
 
-  <p>Welcome.<br> Please click on the better looking image.<br>Hotkeys: 'X' left image, 'M' right image, 'B'
-    equal</p>
+  <main class="main">
+    <section>
 
-  <button class="center_btn" id="btn_draw" disabled>Equal</button>
-  <div><br></div>
+      <p>Welcome.<br> Please click on the better looking image.<br>Hotkeys: 'X' left image, 'M' right image, 'B'
+        equal</p>
+
+      <button class="center_btn" id="btn_draw" disabled>Equal</button>
+      <div><br></div>
 
 
-  <div class="flex one two-500 center">
-    <div>
-      <article id="left_area" class="card active-img"><img src="" id="left_image" data-id onload="fadeIn('left')">
-      </article>
-    </div>
-    <div>
-      <article id="right_area" class="card active-img"><img src="" id="right_image" data-id onload="fadeIn('right')">
-      </article>
-    </div>
-  </div>
+      <div class="flex one two-500 center">
+        <div>
+          <article id="left_area" class="card active-img"><img src="" id="left_image" data-id onload="fadeIn('left')">
+          </article>
+        </div>
+        <div>
+          <article id="right_area" class="card active-img"><img src="" id="right_image" data-id
+              onload="fadeIn('right')">
+          </article>
+        </div>
+      </div>
 
-  <figcaption>
-  </figcaption>
-  <figcaption>
-  </figcaption>
+      <figcaption>
+      </figcaption>
+      <figcaption>
+      </figcaption>
 
+    </section>
+
+  </main>
 
   <script language="javascript">
 
