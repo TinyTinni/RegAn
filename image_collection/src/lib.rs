@@ -72,7 +72,7 @@ impl ImageCollection {
             .pragma("temp_store", "MEMORY")
             .pragma("mmap_size", "134217728")
             .pragma("journal_size_limit", "67108864")
-            .pragma("cache_size", "2000")
+            .pragma("cache_size", "64000")
             .create_if_missing(true);
 
         let db = sqlx::sqlite::SqlitePoolOptions::new()
@@ -169,7 +169,7 @@ impl ImageCollection {
             .pragma("temp_store", "MEMORY")
             .pragma("mmap_size", "134217728")
             .pragma("journal_size_limit", "67108864")
-            .pragma("cache_size", "2000");
+            .pragma("cache_size", "64000");
 
         let db = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
