@@ -38,7 +38,7 @@ async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<Im
     let collection = ImageCollection::new_pre_configured(samples as u32).await?;
 
     let distribution = Normal::new(0_f64, std_dev)?;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     for _ in 0..games {
         let new_duel = collection.new_duel().await.unwrap();

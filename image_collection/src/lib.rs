@@ -182,7 +182,7 @@ impl ImageCollection {
 
         // generate numbers
         let mut numbers: Vec<u32> = (0..num).collect();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         numbers.shuffle(&mut rng);
 
         let mut tx = db.begin().await?;
@@ -383,8 +383,8 @@ async fn select_random_player_uniform(db: &SqlitePool, home_id: &Player) -> Resu
         .fetch_one(db)
         .await?;
     let rnd = {
-        let mut rng = rand::thread_rng();
-        let distr = rand::distributions::Uniform::new(0, all - 1);
+        let mut rng = rand::rng();
+        let distr = rand::distr::Uniform::new(0, all - 1)?;
         rng.sample(distr)
     };
     let random_id = sqlx::query_as!(
