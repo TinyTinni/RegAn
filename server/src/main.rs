@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
             .service(index)
             .service(return_new_match)
             .service(on_new_score)
-            .service(actix_files::Files::new("/images", &image_dir))
+            .service(actix_files::Files::new("/images", &image_dir).prefer_utf8(true))
             .service(style)
     })
     .keep_alive(std::time::Duration::new(90, 0))
