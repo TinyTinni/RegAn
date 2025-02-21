@@ -1,4 +1,4 @@
-use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{App, HttpResponse, HttpServer, Responder, error, get, post, web};
 use anyhow::Result;
 use clap::Parser;
 use image_collection::{ImageCollection, ImageCollectionOptions, Match};

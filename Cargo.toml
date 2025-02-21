@@ -4,7 +4,7 @@ lto = true
 
 [workspace]
 members = ["image_collection", "server", "simulation"]
-resolver = "2"
+resolver = "3"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }

@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
 mod simulation {
     use super::*;
     macro_rules! _assert_delta {
-        ($x:expr, $y:expr, $d:expr) => {
+        ($x:expr_2021, $y:expr_2021, $d:expr_2021) => {
             assert!(($x - $y).abs() < $d && ($y - $x).abs() < $d);
         };
     }
