@@ -91,7 +91,10 @@ impl ImageCollection {
                 options.candidate_buffer
             } else if options.candidate_buffer >= 3 {
                 let new_buffer = std::cmp::min(3, max_players);
-                warn!("Max players exceeds candidate buffer. Lowering candidate buffer to {}. Player count: {}",new_buffer, max_players);
+                warn!(
+                    "Max players exceeds candidate buffer. Lowering candidate buffer to {}. Player count: {}",
+                    new_buffer, max_players
+                );
                 new_buffer
             } else {
                 1
@@ -248,15 +251,18 @@ impl ImageCollection {
 
     /// requests a new duel which needs to be played
     pub async fn new_duel(&self) -> Result<Duel> {
-        if let Some(duel) = self.candidates.pop() {
-            Ok(duel)
-        } else {
-            warn!("No duels in queue. Manually compute one. Try to increase the size of candidate queue.");
-            let duels = calculate_new_matches(&self.db, 3).await?;
-            duels
-                .into_iter()
-                .nth(0)
-                .ok_or(anyhow::anyhow!("No candidates found"))
+        match self.candidates.pop() {
+            Some(duel) => Ok(duel),
+            _ => {
+                warn!(
+                    "No duels in queue. Manually compute one. Try to increase the size of candidate queue."
+                );
+                let duels = calculate_new_matches(&self.db, 3).await?;
+                duels
+                    .into_iter()
+                    .nth(0)
+                    .ok_or(anyhow::anyhow!("No candidates found"))
+            }
         }
     }
 }

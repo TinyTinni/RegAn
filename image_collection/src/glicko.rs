@@ -55,7 +55,7 @@ pub fn new_rating(
 mod tests {
     use super::*;
     macro_rules! assert_delta {
-        ($x:expr, $y:expr, $d:expr) => {
+        ($x:expr_2021, $y:expr_2021, $d:expr_2021) => {
             assert!(($x - $y).abs() < $d && ($y - $x).abs() < $d);
         };
     }
