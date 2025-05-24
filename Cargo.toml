@@ -7,7 +7,7 @@ members = ["image_collection", "server", "simulation"]
 resolver = "3"
 
 [workspace.dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["macros"] }
 tokio-stream = "^0.1"
 env_logger = "^0.11"
 tracing = "^0.1"
@@ -19,6 +19,10 @@ clap = { version = "^4", features = ["derive"] }
 crossbeam-queue = "^0.3"
 serde = { version = "^1", features = ["derive"] }
 simd-json = "^0.15"
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "sqlite",
+    "runtime-tokio",
+    "macros",
+] }
 actix-web = "4"
 actix-files = "^0.6"
