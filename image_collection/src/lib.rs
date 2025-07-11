@@ -278,7 +278,7 @@ async fn check_db_integrity(db: &SqlitePool, image_dir: &String) -> Result<()> {
 
     // check if all files in db exists in fs
     for file in &db_files {
-        let file_path = format!("{}/{}", image_dir, file);
+        let file_path = format!("{image_dir}/{file}");
         if !std::path::Path::new(&file_path).is_file() {
             info!("Image path \"{}\" does not exists in ", file);
             sqlx::query!("DELETE FROM players WHERE name = ?", file)
