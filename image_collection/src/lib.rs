@@ -288,19 +288,19 @@ async fn check_db_integrity(db: &SqlitePool, image_dir: &String) -> Result<()> {
     }
 
     for entry in std::fs::read_dir(image_dir)? {
-        if let Some(file) = entry?.file_name().to_str() {
-            if !db_files.contains(file) {
-                info!("Add \"{}\" to database.", file);
-                sqlx::query!(
-                    "
+        if let Some(file) = entry?.file_name().to_str()
+            && !db_files.contains(file)
+        {
+            info!("Add \"{}\" to database.", file);
+            sqlx::query!(
+                "
                     INSERT INTO players (name, rating, deviation) 
                     VALUES (?, 2200, 350)
                     ",
-                    file
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
+                file
+            )
+            .execute(&mut *tx)
+            .await?;
         }
     }
     tx.commit().await?;
