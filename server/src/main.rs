@@ -86,6 +86,7 @@ async fn main() -> Result<()> {
             .service(style)
     })
     .keep_alive(std::time::Duration::new(90, 0))
+    .tcp_nodelay(true)
     .bind(&addr)?;
 
     println!("Start Server on {}.", &addr);
