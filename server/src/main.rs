@@ -1,3 +1,5 @@
+#[cfg(not(debug_assertions))]
+use actix_web::HttpRequest;
 use actix_web::{App, HttpResponse, HttpServer, Responder, error, get, post, web};
 use anyhow::Result;
 use clap::Parser;
@@ -28,12 +30,62 @@ struct Args {
     image_dir: String,
 }
 
+#[cfg(not(debug_assertions))]
+const CACHE_CONTROL: &str = "public, max-age=0, must-revalidate";
+
+#[cfg(not(debug_assertions))]
+static INDEX_HTML: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html"));
+
+#[cfg(not(debug_assertions))]
+static INDEX_ETAG: &str = include_str!(concat!(env!("OUT_DIR"), "/index.html.etag"));
+
+#[cfg(not(debug_assertions))]
+static STYLE_CSS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/picnic.min.css"));
+
+#[cfg(not(debug_assertions))]
+static STYLE_ETAG: &str = include_str!(concat!(env!("OUT_DIR"), "/picnic.min.css.etag"));
+
+#[cfg(not(debug_assertions))]
+fn cached_response(
+    req: &HttpRequest,
+    etag: &str,
+    body: &'static [u8],
+    content_type: &str,
+) -> HttpResponse {
+    if let Some(if_none_match) = req.headers().get("if-none-match") {
+        if let Ok(val) = if_none_match.to_str() {
+            if val == etag {
+                return HttpResponse::NotModified().finish();
+            }
+        }
+    }
+    HttpResponse::Ok()
+        .content_type(content_type)
+        .insert_header(("ETag", etag))
+        .insert_header(("Cache-Control", CACHE_CONTROL))
+        .body(body)
+}
+
 #[get("/")]
+#[cfg(not(debug_assertions))]
+async fn index(req: HttpRequest) -> impl Responder {
+    cached_response(&req, INDEX_ETAG, INDEX_HTML, "text/html; charset=utf-8")
+}
+
+#[get("/")]
+#[cfg(debug_assertions)]
 async fn index() -> impl Responder {
     actix_files::NamedFile::open("static/index.html")
 }
 
 #[get("/style.css")]
+#[cfg(not(debug_assertions))]
+async fn style(req: HttpRequest) -> impl Responder {
+    cached_response(&req, STYLE_ETAG, STYLE_CSS, "text/css; charset=utf-8")
+}
+
+#[get("/style.css")]
+#[cfg(debug_assertions)]
 async fn style() -> impl Responder {
     actix_files::NamedFile::open_async("static/picnic.min.css").await
 }

@@ -14,3 +14,7 @@ env_logger = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 image_collection = { path = "../image_collection" }
+
+[build-dependencies]
+minify-html = { version = "0.18", default-features = false }
+lightningcss = "1.0.0-alpha.71"
