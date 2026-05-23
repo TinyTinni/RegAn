@@ -94,3 +94,110 @@ async fn main() -> Result<()> {
     img_col.close().await;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, web, App};
+    use image_collection::MatchOutcome;
+
+    #[actix_web::test]
+    async fn test_get_matches_returns_duel() {
+        let img_col = ImageCollection::new_pre_configured(5).await.unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(img_col))
+                .service(return_new_match),
+        )
+        .await;
+
+        let req = test::TestRequest::get().uri("/matches").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+
+        let duel: image_collection::Duel = test::read_body_json(resp).await;
+        assert_ne!(duel.home_id, duel.guest_id);
+        assert!(!duel.home.is_empty());
+        assert!(!duel.guest.is_empty());
+    }
+
+    #[actix_web::test]
+    async fn test_post_matches_accepts_valid_match_and_returns_duel() {
+        let img_col = ImageCollection::new_pre_configured(5).await.unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(img_col))
+                .service(return_new_match)
+                .service(on_new_score),
+        )
+        .await;
+
+        let m = Match {
+            home_id: 1,
+            guest_id: 2,
+            won: MatchOutcome::HomeWin,
+        };
+        let req = test::TestRequest::post()
+            .uri("/matches")
+            .set_json(&m)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+
+        let duel: image_collection::Duel = test::read_body_json(resp).await;
+        assert_ne!(duel.home_id, duel.guest_id);
+    }
+
+    #[actix_web::test]
+    async fn test_post_matches_invalid_json_returns_400() {
+        let img_col = ImageCollection::new_pre_configured(5).await.unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(img_col))
+                .service(on_new_score),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/matches")
+            .insert_header(("Content-Type", "application/json"))
+            .set_payload("not valid json")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[actix_web::test]
+    async fn test_post_matches_invalid_outcome_returns_400() {
+        let img_col = ImageCollection::new_pre_configured(5).await.unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(img_col))
+                .service(on_new_score),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/matches")
+            .insert_header(("Content-Type", "application/json"))
+            .set_payload(r#"{"home_id": 1, "guest_id": 2, "won": 2.0}"#)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[actix_web::test]
+    async fn test_get_matches_no_players_returns_error() {
+        let img_col = ImageCollection::new_pre_configured(0).await.unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(img_col))
+                .service(return_new_match),
+        )
+        .await;
+
+        let req = test::TestRequest::get().uri("/matches").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+    }
+}

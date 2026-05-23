@@ -43,14 +43,76 @@ pub struct Duel {
     pub guest_id: u32,
 }
 
+/// The result of a played match in terms of the home player.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MatchOutcome {
+    HomeWin,
+    Draw,
+    GuestWin,
+}
+
+impl From<MatchOutcome> for f32 {
+    fn from(o: MatchOutcome) -> f32 {
+        match o {
+            MatchOutcome::HomeWin => 1.0,
+            MatchOutcome::Draw => 0.5,
+            MatchOutcome::GuestWin => 0.0,
+        }
+    }
+}
+
+impl From<MatchOutcome> for f64 {
+    fn from(o: MatchOutcome) -> f64 {
+        match o {
+            MatchOutcome::HomeWin => 1.0,
+            MatchOutcome::Draw => 0.5,
+            MatchOutcome::GuestWin => 0.0,
+        }
+    }
+}
+
+impl TryFrom<f32> for MatchOutcome {
+    type Error = &'static str;
+    fn try_from(v: f32) -> Result<Self, Self::Error> {
+        if v == 1.0 {
+            Ok(MatchOutcome::HomeWin)
+        } else if v == 0.5 {
+            Ok(MatchOutcome::Draw)
+        } else if v == 0.0 {
+            Ok(MatchOutcome::GuestWin)
+        } else {
+            Err("match outcome must be 0.0, 0.5, or 1.0")
+        }
+    }
+}
+
+impl Serialize for MatchOutcome {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let v: f32 = (*self).into();
+        v.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for MatchOutcome {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let v = f32::deserialize(deserializer)?;
+        Self::try_from(v).map_err(serde::de::Error::custom)
+    }
+}
+
 /// a played match with the given result
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct Match {
     pub home_id: u32,
     pub guest_id: u32,
     /// 0 if home lost, 0.5 on draw, 1 if home won
-    /// todo: make an enum out of it
-    pub won: f32,
+    pub won: MatchOutcome,
 }
 
 impl ImageCollection {
@@ -343,8 +405,9 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
         rating: rt_guest.rating,
         time: 0,
     };
-    let rth_new = glicko::new_rating(&rth, &rtg, m.won as f64, 0, 0_f64);
-    let rtg_new = glicko::new_rating(&rtg, &rth, 1_f64 - m.won as f64, 0, 0_f64);
+    let won_home = f64::from(m.won);
+    let rth_new = glicko::new_rating(&rth, &rtg, won_home, 0, 0_f64);
+    let rtg_new = glicko::new_rating(&rtg, &rth, 1.0 - won_home, 0, 0_f64);
     sqlx::query!(
         "UPDATE players SET rating = ?, deviation = ? WHERE id = ?",
         rth_new.rating,
@@ -363,11 +426,12 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     .await?;
 
     // insert the new match
+    let result = f64::from(m.won);
     sqlx::query!(
         "INSERT INTO matches (home_players_id, guest_players_id, result, timestamp) VALUES (?, ?, ?, strftime('%Y-%m-%d %H %M','now'))",
         m.home_id,
         m.guest_id,
-        m.won
+        result
     )
     .execute(&mut *tx)
     .await?;
@@ -469,4 +533,157 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
         }
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_new_pre_configured_creates_correct_number_of_players() {
+        let ic = ImageCollection::new_pre_configured(10).await.unwrap();
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM players")
+            .fetch_one(&ic.db)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 10);
+    }
+
+    #[tokio::test]
+    async fn test_new_duel_returns_different_home_and_guest() {
+        let ic = ImageCollection::new_pre_configured(5).await.unwrap();
+        let duel = ic.new_duel().await.unwrap();
+        assert_ne!(duel.home_id, duel.guest_id);
+        assert!(!duel.home.is_empty());
+        assert!(!duel.guest.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_new_duel_fails_with_no_players() {
+        let ic = ImageCollection::new_pre_configured(0).await.unwrap();
+        assert!(ic.new_duel().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_new_duel_fails_with_one_player() {
+        let ic = ImageCollection::new_pre_configured(1).await.unwrap();
+        assert!(ic.new_duel().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_calculate_new_matches_returns_duels_up_to_n() {
+        let ic = ImageCollection::new_pre_configured(5).await.unwrap();
+        let duels = calculate_new_matches(&ic.db, 3).await.unwrap();
+        assert!(!duels.is_empty());
+        assert!(duels.len() <= 3);
+        for duel in &duels {
+            assert_ne!(duel.home_id, duel.guest_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_calculate_new_matches_orders_home_by_deviation() {
+        let ic = ImageCollection::new_pre_configured(3).await.unwrap();
+        sqlx::query("UPDATE players SET deviation = 100 WHERE id = 1")
+            .execute(&ic.db)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE players SET deviation = 200 WHERE id = 2")
+            .execute(&ic.db)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE players SET deviation = 300 WHERE id = 3")
+            .execute(&ic.db)
+            .await
+            .unwrap();
+
+        let duels = calculate_new_matches(&ic.db, 3).await.unwrap();
+        assert_eq!(duels.len(), 3);
+        assert_eq!(duels[0].home_id, 3);
+        assert_eq!(duels[1].home_id, 2);
+        assert_eq!(duels[2].home_id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_update_rating_increases_winner_rating() {
+        let ic = ImageCollection::new_pre_configured(2).await.unwrap();
+        let m = Match {
+            home_id: 1,
+            guest_id: 2,
+            won: MatchOutcome::HomeWin,
+        };
+        update_rating(&ic.db, &m).await.unwrap();
+
+        let home: (f64, f64) = sqlx::query_as("SELECT rating, deviation FROM players WHERE id = 1")
+            .fetch_one(&ic.db)
+            .await
+            .unwrap();
+        assert!(home.0 > 2200.0);
+        assert!(home.1 < 350.0);
+
+        let guest: (f64, f64) =
+            sqlx::query_as("SELECT rating, deviation FROM players WHERE id = 2")
+                .fetch_one(&ic.db)
+                .await
+                .unwrap();
+        assert!(guest.0 < 2200.0);
+        assert!(guest.1 < 350.0);
+
+        let match_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM matches")
+            .fetch_one(&ic.db)
+            .await
+            .unwrap();
+        assert_eq!(match_count.0, 1);
+    }
+
+    #[tokio::test]
+    async fn test_draw_does_not_change_ratings_significantly() {
+        let ic = ImageCollection::new_pre_configured(2).await.unwrap();
+        let m = Match {
+            home_id: 1,
+            guest_id: 2,
+            won: MatchOutcome::Draw,
+        };
+        update_rating(&ic.db, &m).await.unwrap();
+
+        let home: (f64, f64) = sqlx::query_as("SELECT rating, deviation FROM players WHERE id = 1")
+            .fetch_one(&ic.db)
+            .await
+            .unwrap();
+        assert!((home.0 - 2200.0).abs() < 50.0);
+        assert!(home.1 < 350.0);
+
+        let match_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM matches")
+            .fetch_one(&ic.db)
+            .await
+            .unwrap();
+        assert_eq!(match_count.0, 1);
+    }
+
+    #[test]
+    fn test_match_outcome_serde_roundtrip() {
+        assert_eq!(
+            serde_json::from_str::<MatchOutcome>("1.0").unwrap(),
+            MatchOutcome::HomeWin
+        );
+        assert_eq!(
+            serde_json::from_str::<MatchOutcome>("0.5").unwrap(),
+            MatchOutcome::Draw
+        );
+        assert_eq!(
+            serde_json::from_str::<MatchOutcome>("0.0").unwrap(),
+            MatchOutcome::GuestWin
+        );
+        assert!(serde_json::from_str::<MatchOutcome>("2.0").is_err());
+        assert!(serde_json::from_str::<MatchOutcome>("-1.0").is_err());
+        assert_eq!(
+            serde_json::to_string(&MatchOutcome::HomeWin).unwrap(),
+            "1.0"
+        );
+        assert_eq!(serde_json::to_string(&MatchOutcome::Draw).unwrap(), "0.5");
+        assert_eq!(
+            serde_json::to_string(&MatchOutcome::GuestWin).unwrap(),
+            "0.0"
+        );
+    }
 }

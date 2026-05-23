@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use image_collection::{ImageCollection, Match};
+use image_collection::{ImageCollection, Match, MatchOutcome};
 use rand_distr::{Distribution, Normal};
 
 #[derive(Parser, Debug)]
@@ -48,12 +48,10 @@ async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<Im
         let guest_id = new_duel.guest_id;
         let skew = distribution.sample(&mut rng);
 
-        let won = {
-            if (home_value as f64 + skew) > guest_value as f64 {
-                1_f32
-            } else {
-                0_f32
-            }
+        let won = if (home_value as f64 + skew) > guest_value as f64 {
+            MatchOutcome::HomeWin
+        } else {
+            MatchOutcome::GuestWin
         };
         let m = Match {
             home_id,
