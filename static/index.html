@@ -2,7 +2,8 @@
 <html lang="en">
 
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1" , charset="UTF-8">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RegAn</title>
   <link rel="icon"
     href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='-0.1em' y='.9em' font-size='90'>🦋</text></svg>">
@@ -25,20 +26,19 @@
       background: rgb(43, 94, 40);
     }
 
-
     body {
       color: white;
-      background-color: #282827;
+      background: #282827;
     }
 
     .card {
-      background-color: #373736;
+      background: #373736;
       max-width: 95%;
       margin: auto
     }
 
     nav {
-      background-color: #373736;
+      background: #373736;
     }
 
     .center_btn {
@@ -57,13 +57,12 @@
   </style>
 </head>
 
-<body onload="loadInitialMatch()">
+<body>
   <nav>
     <a href="#" class="brand">
       <span>🦋 Regression Annotation Tool</span>
     </a>
 
-    <!-- responsive-->
     <input id="bmenub" type="checkbox" class="show">
     <label for="bmenub" class="burger pseudo button">About</label>
 
@@ -81,116 +80,142 @@
         equal</p>
 
       <button class="center_btn" id="btn_draw" disabled>Equal</button>
-      <div><br></div>
 
       <div class="flex one two-500 center">
         <div>
-          <article id="left_area" class="card active-img"><img src="" id="left_image" data-id onload="fadeIn('left')">
+          <article id="left_area" class="card active-img"><img src="/images/" id="left_image" data-id>
           </article>
         </div>
         <div>
-          <article id="right_area" class="card active-img"><img src="" id="right_image" data-id
-              onload="fadeIn('right')">
+          <article id="right_area" class="card active-img"><img src="/images/" id="right_image" data-id>
           </article>
         </div>
       </div>
     </section>
   </main>
 
-  <script language="javascript">
+  <script>
+    "use strict";
 
-    function fadeOut(area) {
-      area.style.filter = "opacity(20%) blur(8px)"
-      area.style.transition = "4s";
-      area.removeEventListener("click", onPlayerClicked)
+    // cached DOM references
+    const leftImage = document.getElementById("left_image");
+    const rightImage = document.getElementById("right_image");
+    const leftArea = document.getElementById("left_area");
+    const rightArea = document.getElementById("right_area");
+    const drawBtn = document.getElementById("btn_draw");
+
+    let clicksEnabled = false;
+
+    function showError(msg) {
+      const el = document.getElementById("error_msg") || (() => {
+        const e = document.createElement("div");
+        e.id = "error_msg";
+        e.style.cssText = "color:#ff6b6b;text-align:center;padding:1em;margin-top:1em";
+        document.querySelector("section").appendChild(e);
+        return e;
+      })();
+      el.textContent = msg;
     }
 
-    function fadeIn(side_str) {
-      area = document.getElementById(side_str + "_area")
-      area.style.filter = "opacity(100%) blur(0px)"
-      area.style.transition = "0.75s";
+    function hideError() {
+      const el = document.getElementById("error_msg");
+      if (el) el.remove();
+    }
 
-      // if both images are loaded, make them clickable
-      left_image = document.getElementById("left_image")
-      right_image = document.getElementById("right_image")
-      if (left_image.complete && right_image.complete) {
-        left_area = document.getElementById("left_area")
-        right_area = document.getElementById("right_area")
-        left_area.addEventListener("click", onPlayerClicked)
-        right_area.addEventListener("click", onPlayerClicked)
-        btn = document.getElementById("btn_draw")
-        btn.removeAttribute("disabled")
-        btn.addEventListener("click", onPlayerClicked)
-      }
+    function fadeOut(area) {
+      area.style.filter = "opacity(20%) blur(8px)";
+      area.style.transition = "4s";
+    }
+
+    function fadeIn(side) {
+      const area = document.getElementById(side + "_area");
+      area.style.filter = "opacity(100%) blur(0)";
+      area.style.transition = "0.2s";
+      tryEnableClicks();
+    }
+
+    function tryEnableClicks() {
+      if (clicksEnabled) return;
+      if (!leftImage.complete || !rightImage.complete) return;
+      clicksEnabled = true;
+      leftArea.addEventListener("click", onPlayerClicked);
+      rightArea.addEventListener("click", onPlayerClicked);
+      drawBtn.removeAttribute("disabled");
+      drawBtn.addEventListener("click", onPlayerClicked);
     }
 
     function processMatchResponse(response) {
-      response.json()
-        .then(function (next_match) {
-          left_image = document.getElementById("left_image")
-          right_image = document.getElementById("right_image")
-          left_image.src = "images/" + next_match.home
-          right_image.src = "images/" + next_match.guest
-          left_image.dataId = next_match.home_id
-          right_image.dataId = next_match.guest_id
-        })
+      if (!response.ok) {
+        showError("Server error: " + response.status);
+        return;
+      }
+      hideError();
+      response.json().then(function (next_match) {
+        leftImage.src = "images/" + next_match.home;
+        rightImage.src = "images/" + next_match.guest;
+        leftImage.dataId = next_match.home_id;
+        rightImage.dataId = next_match.guest_id;
+      });
     }
 
     function loadInitialMatch() {
       fetch('/matches', { method: 'GET' })
         .then(processMatchResponse)
-        .catch((error) => {
-          window.location.reload(true)
-        });
+        .catch(() => showError("Could not connect to server."));
     }
 
-    function onPlayerClicked() {
-      left_area = document.getElementById("left_area")
-      right_area = document.getElementById("right_area")
+    function onPlayerClicked(event) {
+      fadeOut(leftArea);
+      fadeOut(rightArea);
+      clicksEnabled = false;
+      drawBtn.setAttribute("disabled", true);
+      drawBtn.removeEventListener("click", onPlayerClicked);
+      leftArea.removeEventListener("click", onPlayerClicked);
+      rightArea.removeEventListener("click", onPlayerClicked);
 
-      // disable images, prepare for loading
-      fadeOut(left_area)
-      fadeOut(right_area)
-      document.getElementById("btn_draw").setAttribute("disabled", true)
-      document.getElementById("btn_draw").removeEventListener("click", onPlayerClicked)
-
-      // get winner
+      let winner;
       switch (event.currentTarget.id) {
-        case "left_area": winner = 1
-          break;
-        case "right_area": winner = 0
-          break;
-        case "btn_draw": winner = 0.5
-          break;
+        case "left_area": winner = 1; break;
+        case "right_area": winner = 0; break;
+        case "btn_draw": winner = 0.5; break;
       }
 
-      // prepare message
       const match = {
-        home_id: left_image.dataId,
-        guest_id: right_image.dataId,
-        won: winner
-      }
+        home_id: leftImage.dataId,
+        guest_id: rightImage.dataId,
+        won: winner,
+      };
 
-      // send message and load new match
-      fetch('/matches', { method: 'POST', body: JSON.stringify(match), headers: { 'Content-Type': 'application/json' } })
+      fetch('/matches', {
+        method: 'POST',
+        body: JSON.stringify(match),
+        headers: { 'Content-Type': 'application/json' },
+      })
         .then(processMatchResponse)
-        .catch((error) => {
-          window.location.reload(true)
-        });
+        .catch(() => showError("Network error. Could not submit match."));
     }
 
-    // add hotkeys
+    // image load handlers
+    leftImage.addEventListener("load", () => fadeIn("left"));
+    rightImage.addEventListener("load", () => fadeIn("right"));
+    leftImage.addEventListener("error", () => showError("Failed to load image: " + leftImage.src));
+    rightImage.addEventListener("error", () => showError("Failed to load image: " + rightImage.src));
+    tryEnableClicks();
+
+    // hotkeys
     document.addEventListener('keydown', function (event) {
-      let click_event = new Event("click");
+      const clickEvent = new Event("click");
       if (event.key == 'x') {
-        document.getElementById("left_area").dispatchEvent(click_event)
+        leftArea.dispatchEvent(clickEvent);
       } else if (event.key == 'm') {
-        document.getElementById("right_area").dispatchEvent(click_event)
+        rightArea.dispatchEvent(clickEvent);
       } else if (event.key == 'b') {
-        document.getElementById("btn_draw").dispatchEvent(click_event)
+        drawBtn.dispatchEvent(clickEvent);
       }
     });
 
+    // initial load
+    loadInitialMatch();
   </script>
 
 </body>

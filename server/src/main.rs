@@ -3,6 +3,8 @@ use anyhow::Result;
 use clap::Parser;
 use image_collection::{ImageCollection, ImageCollectionOptions, Match};
 
+const TRANSPARENT_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg"/>"#;
+
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
 struct Args {
@@ -34,6 +36,13 @@ async fn index() -> impl Responder {
 #[get("/style.css")]
 async fn style() -> impl Responder {
     actix_files::NamedFile::open_async("static/picnic.min.css").await
+}
+
+#[get("/blank_image")]
+async fn blank_image() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("image/svg+xml")
+        .body(TRANSPARENT_SVG)
 }
 
 #[get("/matches")]
@@ -82,6 +91,7 @@ async fn main() -> Result<()> {
             .service(index)
             .service(return_new_match)
             .service(on_new_score)
+            .service(blank_image)
             .service(actix_files::Files::new("/images", &image_dir).prefer_utf8(true))
             .service(style)
     })
@@ -98,7 +108,7 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, web, App};
+    use actix_web::{App, test, web};
     use image_collection::MatchOutcome;
 
     #[actix_web::test]
