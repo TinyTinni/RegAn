@@ -52,12 +52,11 @@ fn cached_response(
     body: &'static [u8],
     content_type: &str,
 ) -> HttpResponse {
-    if let Some(if_none_match) = req.headers().get("if-none-match") {
-        if let Ok(val) = if_none_match.to_str() {
-            if val == etag {
-                return HttpResponse::NotModified().finish();
-            }
-        }
+    if let Some(if_none_match) = req.headers().get("if-none-match")
+        && let Ok(val) = if_none_match.to_str()
+        && val == etag
+    {
+        return HttpResponse::NotModified().finish();
     }
     HttpResponse::Ok()
         .content_type(content_type)
