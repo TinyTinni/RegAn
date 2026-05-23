@@ -6,9 +6,9 @@
 
 A tool to create an annotated set of strictly ordered data based on hard to rate images. By doing relational comparisons for each image pair, it is possible to get an ordering with lower bias. 
 It can be used to rate the quality of natural products like the cookies, which cannot fully objectively described.
-The tool automatically selects the next lowest rated image and finds a suitable candidate in order to lower the amount comparisons for the highest ordering certainty (see simulation for details). The rating, uncertainty and comparisons are saved in a SQLite database. 
+The tool automatically selects the next lowest rated image and finds a suitable candidate in order to lower the number of comparisons for the highest ordering certainty (see simulation for details). The rating, uncertainty and comparisons are saved in a SQLite database. 
 
-The frontend is a HTML site which works on desktop and mobile. The server is a simple standalone binary, so it can run almost everywhere. You can host it or run it locally.
+The frontend is a HTML site which works on desktop and mobile. The server is a single standalone binary with the frontend embedded — no extra files needed at runtime. You can host it or run it locally.
 
 
 ## Motivation
@@ -26,23 +26,22 @@ The matchmaking strategy of the server tries to select those images with the hig
 
 #### Server with Docker
 A Dockerfile is provided for people who want to use docker for hosting the server.  
-You have to define volumes for the input images (at least read access) and a directoy, where the sqlite database is written.  
-Also, port publish is also needed.  
-An example on how to run it with docker where `YOUR_DIRECTOY/images` contains images
+The release binary embeds the frontend, so no extra files are needed at runtime.  
+The container expects your images in a mounted volume and writes the SQLite database there.  
+An example with your images in `<YOUR_DIRECTORY>/images/`:
 ```
 docker build -t regan .
 docker run -v <YOUR_DIRECTORY>:/var/regan/ -p <HOST_PORT>:80/tcp regan
 ```
 
 #### Parameters
-Use `--help` to see the parameter documentation
+Use `--help` to see the parameter documentation.
 
-Default, the listens to port 8000, but it can be changed with the `--port` parameter.
+By default, the server listens on port 8000, but this can be changed with the `--port` parameter.
 
-The server will use images provided in a `images` subdirectory. Later on, you can add or remove images, but to take an effect, the server requires a restart. The subdirectory can be changed with the `image_dir` parameter.
+The server will use images provided in an `images/` subdirectory. Later on, you can add or remove images, but to take effect, the server requires a restart. The subdirectory can be changed with the `--image-dir` parameter.
 
-All games and the current ranking of each image is saved in an SQLite database. Default is currently the `out.db` file,
-but can be changed with `-o` parameter. Using SQLite allows the server to run locally when the images are present, e.g. you can run the whole server from an USB stick.
+All games and the current ranking of each image are saved in a SQLite database. The default is `out.db`, but can be changed with `-o`. Using SQLite allows the server to run locally when the images are present — you can run the whole server from a USB stick.
 
 #### Enable logging
 

@@ -1,0 +1,7 @@
+target/
+.git/
+.gitignore
+*.md
+*.pdf
+.DS_Store
+simulation/eval/
