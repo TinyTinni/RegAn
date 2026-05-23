@@ -36,6 +36,44 @@ jobs:
         rustup target add x86_64-unknown-linux-musl
         cargo build --target x86_64-unknown-linux-musl --release --package server
         cargo build --target x86_64-unknown-linux-musl --release --package simulation
+
+    - name: Smoke test server (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        set -euo pipefail
+
+        # minimal image directory with two dummy PNGs
+        IMG_DIR=$(mktemp -d)
+        echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' | base64 -d > "$IMG_DIR/1.png"
+        echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' | base64 -d > "$IMG_DIR/2.png"
+
+        PORT=9877
+        DB=$(mktemp)
+        SERVER=target/x86_64-unknown-linux-musl/release/server
+
+        "$SERVER" --port "$PORT" --image-dir "$IMG_DIR" --output "sqlite://$DB" &
+        SERVER_PID=$!
+
+        # wait for server to bind
+        for i in $(seq 1 30); do
+          if curl -sfo /dev/null "http://[::1]:$PORT/" 2>/dev/null; then
+            echo "Server ready after ${i}s"
+            break
+          fi
+          sleep 1
+        done
+
+        # smoke test endpoints
+        echo "=== GET / ==="
+        curl -sSf "http://[::1]:$PORT/" > /dev/null
+        echo "OK"
+
+        # cleanup
+        kill "$SERVER_PID" 2>/dev/null || true
+        wait "$SERVER_PID" 2>/dev/null || true
+        rm -f "$DB"
+        rm -rf "$IMG_DIR"
+
     - name: Upload artifacts (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-artifact@v4
