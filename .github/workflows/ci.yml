@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+          components: clippy, rustfmt
+          cache: false
+
+    - name: Install musl target (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update && sudo apt-get install -y musl-tools musl-dev
+        rustup target add x86_64-unknown-linux-musl
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ matrix.os }}
+
+    - run: cargo fmt --all -- --check
+
+    - name: Build, test & lint (Ubuntu musl)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        TARGET=x86_64-unknown-linux-musl
+        cargo build --target "$TARGET" --release
+        cargo test --target "$TARGET" --release
+        cargo clippy --target "$TARGET" --all-features --release
+
+    - name: Build, test & lint (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        cargo build --release
+        cargo test --release
+        cargo clippy --all-features --release
+
+    - name: Upload artifacts (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v7
+      with:
+        name: linux-musl
+        path: |
+          target/x86_64-unknown-linux-musl/release/server
+          target/x86_64-unknown-linux-musl/release/simulation
+
+    - name: Upload artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v7
+      with:
+        name: windows
+        path: |
+          target/release/server.exe
+          target/release/simulation.exe
+
+  smoke-test-linux:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/download-artifact@v8
+      with:
+        name: linux-musl
+        path: ./bin
+    - run: chmod +x ./bin/server ./bin/simulation
+    - name: Smoke test server
+      run: bash .github/scripts/smoke-test.sh ./bin/server
+
+  smoke-test-windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/download-artifact@v8
+      with:
+        name: windows
+        path: ./bin
+    - name: Smoke test server
+      shell: bash
+      run: bash .github/scripts/smoke-test.sh ./bin/server.exe

@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Download CI artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RUN_ID=$(gh run list --workflow CI --commit "${{ github.sha }}" \
+            --json databaseId,conclusion --jq \
+            'map(select(.conclusion == "success")) | .[0].databaseId')
+          if [ -z "$RUN_ID" ]; then
+            echo "No successful CI run found for commit ${{ github.sha }}"
+            exit 1
+          fi
+          gh run download "$RUN_ID" --dir artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/**/*
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
