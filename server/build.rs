@@ -48,9 +48,10 @@ fn main() {
 
         let h_orig = html.len();
         let h_after = minified_html.len();
+        let h_saved = h_orig - h_after;
+        let h_pct = h_saved as f64 / h_orig as f64 * 100.0;
         println!(
-            "cargo::warning=HTML minify: {h_orig} B -> {h_after} B ({} B saved)",
-            h_orig - h_after
+            "cargo::warning=HTML minify: {h_orig} B -> {h_after} B ({h_saved} B, {h_pct:.1}% saved)"
         );
     } else {
         std::fs::write(Path::new(&out).join("index.html"), html.as_bytes())
