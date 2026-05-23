@@ -428,7 +428,7 @@ async fn update_rating(db: &SqlitePool, m: &Match) -> Result<()> {
     // insert the new match
     let result = f64::from(m.won);
     sqlx::query!(
-        "INSERT INTO matches (home_players_id, guest_players_id, result, timestamp) VALUES (?, ?, ?, strftime('%Y-%m-%d %H %M','now'))",
+        "INSERT INTO matches (home_players_id, guest_players_id, result, timestamp) VALUES (?, ?, ?, strftime('%Y-%m-%d %H:%M','now'))",
         m.home_id,
         m.guest_id,
         result

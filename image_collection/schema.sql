@@ -7,13 +7,12 @@ CREATE TABLE IF NOT EXISTS players (
 
 CREATE TABLE IF NOT EXISTS matches(
     id INTEGER PRIMARY KEY NOT NULL,
-    home_players_id INTEGER NOT NULL,
-    guest_players_id INTEGER NOT NULL,
-    result REAL NOT NULL,
-    timestamp DATE NOT NULL
+    home_players_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    guest_players_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    result REAL NOT NULL CHECK (result IN (0.0, 0.5, 1.0)),
+    timestamp TEXT NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_player ON players (id);
 CREATE INDEX IF NOT EXISTS idx_player_rating ON players (rating); 
 CREATE INDEX IF NOT EXISTS idx_player_deviation ON players(deviation);
 
