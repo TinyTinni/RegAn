@@ -27,24 +27,31 @@ fn main() {
         let minified_html = strip_whitespace(&minified_html);
 
         let out = Path::new(&out);
-        std::fs::write(out.join("index.html"), &minified_html)
-            .expect("Failed to write index.html");
+        std::fs::write(out.join("index.html"), &minified_html).expect("Failed to write index.html");
         std::fs::write(out.join("picnic.min.css"), filtered_css.as_bytes())
             .expect("Failed to write picnic.min.css");
         std::fs::write(out.join("index.html.etag"), compute_etag(&minified_html))
             .expect("Failed to write index.html.etag");
-        std::fs::write(out.join("picnic.min.css.etag"), compute_etag(filtered_css.as_bytes()))
-            .expect("Failed to write picnic.min.css.etag");
+        std::fs::write(
+            out.join("picnic.min.css.etag"),
+            compute_etag(filtered_css.as_bytes()),
+        )
+        .expect("Failed to write picnic.min.css.etag");
 
         let orig = css.len();
         let after = filtered_css.len();
         let saved = orig - after;
         let pct = saved as f64 / orig as f64 * 100.0;
-        println!("cargo::warning=CSS tree-shake: {orig} B -> {after} B ({saved} B, {pct:.1}% saved)");
+        println!(
+            "cargo::warning=CSS tree-shake: {orig} B -> {after} B ({saved} B, {pct:.1}% saved)"
+        );
 
         let h_orig = html.len();
         let h_after = minified_html.len();
-        println!("cargo::warning=HTML minify: {h_orig} B -> {h_after} B ({} B saved)", h_orig - h_after);
+        println!(
+            "cargo::warning=HTML minify: {h_orig} B -> {h_after} B ({} B saved)",
+            h_orig - h_after
+        );
     } else {
         std::fs::write(Path::new(&out).join("index.html"), html.as_bytes())
             .expect("Failed to write index.html");
@@ -52,8 +59,14 @@ fn main() {
             .expect("Failed to write picnic.min.css");
     }
 
-    println!("cargo::rerun-if-changed={}", root.join("static/index.html").display());
-    println!("cargo::rerun-if-changed={}", root.join("static/picnic.min.css").display());
+    println!(
+        "cargo::rerun-if-changed={}",
+        root.join("static/index.html").display()
+    );
+    println!(
+        "cargo::rerun-if-changed={}",
+        root.join("static/picnic.min.css").display()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -82,11 +95,14 @@ fn extract_used_classes(html: &str) -> HashSet<String> {
 }
 
 fn tree_shake_css(css: &str, used: &HashSet<String>) -> String {
-    let mut stylesheet = StyleSheet::parse(css, ParserOptions::default())
-        .expect("Failed to parse CSS");
+    let mut stylesheet =
+        StyleSheet::parse(css, ParserOptions::default()).expect("Failed to parse CSS");
     filter_rules(&mut stylesheet.rules.0, used);
     stylesheet
-        .to_css(PrinterOptions { minify: true, ..PrinterOptions::default() })
+        .to_css(PrinterOptions {
+            minify: true,
+            ..PrinterOptions::default()
+        })
         .expect("Failed to serialize CSS")
         .code
 }
@@ -130,7 +146,11 @@ fn compute_etag(content: &[u8]) -> String {
 fn strip_whitespace(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     for line in bytes.split(|&b| b == b'\n') {
-        let trimmed = line.iter().copied().skip_while(|&b| b == b' ' || b == b'\t').collect::<Vec<_>>();
+        let trimmed = line
+            .iter()
+            .copied()
+            .skip_while(|&b| b == b' ' || b == b'\t')
+            .collect::<Vec<_>>();
         if trimmed.is_empty() {
             continue;
         }

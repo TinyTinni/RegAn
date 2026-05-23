@@ -133,8 +133,16 @@ mod tests {
 
     #[test]
     fn test_new_rating_loss_is_inverse_of_win() {
-        let a = Rating { rating: 1500.0, deviation: 200.0, time: 0 };
-        let b = Rating { rating: 1500.0, deviation: 200.0, time: 0 };
+        let a = Rating {
+            rating: 1500.0,
+            deviation: 200.0,
+            time: 0,
+        };
+        let b = Rating {
+            rating: 1500.0,
+            deviation: 200.0,
+            time: 0,
+        };
         let win = new_rating(&a, &b, 1.0, 0, 0_f64);
         let loss = new_rating(&a, &b, 0.0, 0, 0_f64);
         assert_delta!(win.rating - a.rating, -(loss.rating - a.rating), 0.001);
@@ -143,8 +151,16 @@ mod tests {
 
     #[test]
     fn test_new_rating_clamps_input() {
-        let h = Rating { rating: 1500.0, deviation: 200.0, time: 0 };
-        let g = Rating { rating: 1400.0, deviation: 30.0, time: 0 };
+        let h = Rating {
+            rating: 1500.0,
+            deviation: 200.0,
+            time: 0,
+        };
+        let g = Rating {
+            rating: 1400.0,
+            deviation: 30.0,
+            time: 0,
+        };
         let win = new_rating(&h, &g, 1.0, 0, 0_f64);
         let overshoot = new_rating(&h, &g, 2.0, 0, 0_f64);
         assert_eq!(win.rating, overshoot.rating);
@@ -166,10 +182,22 @@ mod tests {
             (1000.0, 100.0, 2000.0, 300.0, 0.0),
         ];
         for (r_h, rd_h, r_g, rd_g, s) in scenarios {
-            let h = Rating { rating: r_h, deviation: rd_h, time: 0 };
-            let g = Rating { rating: r_g, deviation: rd_g, time: 0 };
+            let h = Rating {
+                rating: r_h,
+                deviation: rd_h,
+                time: 0,
+            };
+            let g = Rating {
+                rating: r_g,
+                deviation: rd_g,
+                time: 0,
+            };
             let nr = new_rating(&h, &g, s, 0, 0_f64);
-            assert!(nr.deviation <= 350.0, "deviation {0} exceeds 350", nr.deviation);
+            assert!(
+                nr.deviation <= 350.0,
+                "deviation {0} exceeds 350",
+                nr.deviation
+            );
             assert!(nr.deviation >= 0.0);
         }
     }
