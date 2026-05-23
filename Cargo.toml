@@ -19,7 +19,7 @@ clap = { version = "^4", features = ["derive"] }
 crossbeam-queue = "^0.3"
 serde = { version = "^1", features = ["derive"] }
 simd-json = "^0.17"
-sqlx = { version = "0.8", default-features = false, features = [
+sqlx = { version = "0.9", default-features = false, features = [
     "sqlite",
     "runtime-tokio",
     "macros",

@@ -478,13 +478,7 @@ async fn select_random_player(db: &SqlitePool, home_id: &Player) -> Result<Playe
 
     let random_id = sqlx::query_as!(
         Player,
-        // "SELECT id, rating, deviation, name FROM players
-        // WHERE id IN (SELECT id FROM players
-        //    WHERE id != $1 AND
-        //    rating <= $2 AND
-        //    rating >= $3
-        //    ORDER BY RANDOM() LIMIT 1)",
-        "SELECT id, rating, deviation, name FROM players
+        "SELECT id as \"id!\", rating, deviation, name FROM players
             WHERE id IN (SELECT id FROM players
                 WHERE id != $1 AND
                 rating <= $2 AND
