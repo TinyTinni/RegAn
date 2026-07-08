@@ -217,7 +217,7 @@ impl ImageCollection {
         println! {"original,rating,deviation"};
 
         for p in players.iter() {
-            println! {"{},{},{}", &p.name, &p.rating, &p.deviation};
+            println! {"{},{},{}", p.name, p.rating, p.deviation};
         }
 
         Ok(())

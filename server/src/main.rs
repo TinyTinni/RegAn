@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
     .tcp_nodelay(true)
     .bind(&addr)?;
 
-    println!("Start Server on {}.", &addr);
+    println!("Start Server on {}.", addr);
     server.run().await?;
     img_col.close().await;
     Ok(())
