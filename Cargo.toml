@@ -10,22 +10,22 @@ members = ["image_collection", "server", "simulation"]
 resolver = "3"
 
 [workspace.dependencies]
-tokio = { version = "1", features = ["macros"] }
-tokio-stream = "^0.1"
-env_logger = "^0.11"
-tracing = "^0.1"
-anyhow = "^1"
-futures = "^0.3"
-rand = "^0.10"
-rand_distr = "^0.6"
-clap = { version = "^4", features = ["derive"] }
-crossbeam-queue = "^0.3"
-serde = { version = "^1", features = ["derive"] }
-simd-json = "^0.17"
-sqlx = { version = "0.9", default-features = false, features = [
+tokio = { version = "1.53.1", features = ["macros"] }
+tokio-stream = "^0.1.19"
+env_logger = "^0.11.11"
+tracing = "^0.1.44"
+anyhow = "^1.0.104"
+futures = "^0.3.34"
+rand = "^0.10.2"
+rand_distr = "^0.6.0"
+clap = { version = "^4.6.6", features = ["derive"] }
+crossbeam-queue = "^0.3.14"
+serde = { version = "^1.0.229", features = ["derive"] }
+simd-json = "^0.18.1"
+sqlx = { version = "0.9.0", default-features = false, features = [
     "sqlite",
     "runtime-tokio",
     "macros",
 ] }
-actix-web = "4"
-actix-files = "^0.6"
+actix-web = "4.15.0"
+actix-files = "^0.7.0"

@@ -86,7 +86,7 @@ async fn style(req: HttpRequest) -> impl Responder {
 #[get("/style.css")]
 #[cfg(debug_assertions)]
 async fn style() -> impl Responder {
-    actix_files::NamedFile::open_async("static/picnic.min.css").await
+    actix_files::NamedFile::open("static/picnic.min.css")
 }
 
 #[get("/blank_image")]
