@@ -18,7 +18,42 @@ pub struct ImageCollection {
     /// is true, when a thread is already in process in filling the queue up
     db_update_in_progress: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
+    /// matchmaking strategy used for upcoming duels
+    strategy: Strategy,
+    /// single source of randomness for everything this collection does
+    rng: std::sync::Arc<std::sync::Mutex<StdRng>>,
+
     db: SqlitePool,
+}
+
+/// Strategy used to pick an opponent for a player.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Strategy {
+    /// Pick a random opponent whose rating lies within
+    /// `rating ± 0.96 * deviation` of the player.
+    /// Falls back to a uniformly random opponent when the window is empty.
+    #[default]
+    Windowed,
+    /// Pick a uniformly random opponent, ignoring ratings entirely.
+    Uniform,
+}
+
+impl FromStr for Strategy {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "windowed" => Ok(Strategy::Windowed),
+            "uniform" => Ok(Strategy::Uniform),
+            other => Err(format!(
+                "unknown strategy {other:?}, expected \"windowed\" or \"uniform\""
+            )),
+        }
+    }
+}
+
+fn batch_rng(shared: &std::sync::Arc<std::sync::Mutex<StdRng>>) -> StdRng {
+    let mut shared = shared.lock().expect("rng mutex poisoned");
+    StdRng::from_rng(&mut *shared)
 }
 
 /// Options to create an ImageCollection Type
@@ -165,7 +200,11 @@ impl ImageCollection {
 
         let candidates = ArrayQueue::<Duel>::new(std::cmp::max(1, candidate_buffer));
         let candidates = std::sync::Arc::new(candidates);
-        let new_duels = calculate_new_matches(&db, candidates.capacity()).await?;
+        let rng = std::sync::Arc::new(std::sync::Mutex::new(rand::make_rng::<StdRng>()));
+        let mut batch = batch_rng(&rng);
+        let new_duels =
+            calculate_new_matches(&db, candidates.capacity(), Strategy::default(), &mut batch)
+                .await?;
         for nd in new_duels.into_iter() {
             let _ = candidates.push(nd);
         }
@@ -174,6 +213,8 @@ impl ImageCollection {
             candidates,
             db,
             db_update_in_progress,
+            strategy: Strategy::default(),
+            rng,
         })
     }
 
@@ -214,16 +255,23 @@ impl ImageCollection {
         .fetch_all(&self.db)
         .await?;
 
-        println! {"original,rating,deviation"};
+        println!("original,rating,deviation");
 
         for p in players.iter() {
-            println! {"{},{},{}", p.name, p.rating, p.deviation};
+            println!("{},{},{}", p.name, p.rating, p.deviation);
         }
 
         Ok(())
     }
 
-    pub async fn new_pre_configured(num: u32) -> Result<ImageCollection> {
+    /// Creates `num` players which all start at rating 2200 / deviation 350.
+    ///
+    /// The seed determines the player order and — because it also seeds all
+    /// randomness used internally by the collection — makes complete runs
+    /// reproducible: the same (num, seed, strategy) tuple always plays the
+    /// same duels.
+    pub async fn new_pre_configured(num: u32, seed: u64) -> Result<ImageCollection> {
+        let mut rng = StdRng::seed_from_u64(seed);
         let db_opions = sqlx::sqlite::SqliteConnectOptions::from_str(":memory:")?
             .shared_cache(false)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
@@ -247,7 +295,6 @@ impl ImageCollection {
 
         // generate numbers
         let mut numbers: Vec<u32> = (0..num).collect();
-        let mut rng = rand::rng();
         numbers.shuffle(&mut rng);
 
         let mut tx = db.begin().await?;
@@ -268,6 +315,8 @@ impl ImageCollection {
             candidates,
             db,
             db_update_in_progress,
+            strategy: Strategy::default(),
+            rng: std::sync::Arc::new(std::sync::Mutex::new(rng)),
         })
     }
 
@@ -276,6 +325,8 @@ impl ImageCollection {
         let db = self.db.clone();
         let can_queue = self.candidates.clone();
         let db_update_in_progress = self.db_update_in_progress.clone();
+        let strategy = self.strategy;
+        let shared_rng = self.rng.clone();
         tokio::spawn(async move {
             let now = std::time::Instant::now();
             match update_rating(&db, &m).await {
@@ -295,7 +346,11 @@ impl ImageCollection {
             {
                 info!("refresh duel queue");
                 let now = std::time::Instant::now();
-                if let Ok(new_duels) = calculate_new_matches(&db, can_queue.capacity()).await {
+                // batch_rng instead of ThreadRng: this future is spawned and must be Send
+                let mut rng = batch_rng(&shared_rng);
+                if let Ok(new_duels) =
+                    calculate_new_matches(&db, can_queue.capacity(), strategy, &mut rng).await
+                {
                     // ignore if queue is full
                     for nd in new_duels.into_iter().skip(can_queue.len() + 1) {
                         let _ = can_queue.push(nd); // ignore output
@@ -311,6 +366,11 @@ impl ImageCollection {
         });
     }
 
+    /// switch the matchmaking strategy used for upcoming duels
+    pub fn set_strategy(&mut self, strategy: Strategy) {
+        self.strategy = strategy;
+    }
+
     /// requests a new duel which needs to be played
     pub async fn new_duel(&self) -> Result<Duel> {
         match self.candidates.pop() {
@@ -319,7 +379,8 @@ impl ImageCollection {
                 warn!(
                     "No duels in queue. Manually compute one. Try to increase the size of candidate queue."
                 );
-                let duels = calculate_new_matches(&self.db, 3).await?;
+                let mut rng = batch_rng(&self.rng);
+                let duels = calculate_new_matches(&self.db, 3, self.strategy, &mut rng).await?;
                 duels
                     .into_iter()
                     .nth(0)
@@ -448,60 +509,84 @@ struct Player {
     name: String,
 }
 
-async fn select_random_player_uniform(db: &SqlitePool, home_id: &Player) -> Result<Player> {
-    let all = sqlx::query_scalar!("SELECT COUNT(*) FROM players")
-        .fetch_one(db)
-        .await?;
-    let rnd = {
-        let mut rng = rand::rng();
-        let distr = rand::distr::Uniform::new(0, all - 1)?;
-        rng.sample(distr)
-    };
-    let random_id = sqlx::query_as!(
+/// pick one candidate at random
+fn pick_random(mut candidates: Vec<Player>, rng: &mut impl RngExt) -> Result<Player> {
+    if candidates.is_empty() {
+        anyhow::bail!("no possible opponent available");
+    }
+    let idx = rng.random_range(0..candidates.len());
+    Ok(candidates.swap_remove(idx))
+}
+
+/// uniformly random opponent, ignoring ratings
+async fn select_uniform_opponent(
+    db: &SqlitePool,
+    home_id: &Player,
+    rng: &mut impl RngExt,
+) -> Result<Player> {
+    let candidates = sqlx::query_as!(
         Player,
         "SELECT id, rating, deviation, name FROM players
-        WHERE id != $1 LIMIT 1 OFFSET $2",
-        home_id.id,
-        rnd
+        WHERE id != ?",
+        home_id.id
     )
-    .fetch_one(db)
+    .fetch_all(db)
     .await?;
-    Ok(random_id)
+    pick_random(candidates, rng)
 }
 
 /// always the best performing strategy
-async fn select_random_player(db: &SqlitePool, home_id: &Player) -> Result<Player> {
+///
+/// picks a random opponent whose rating lies within
+/// `rating ± 0.96 * deviation` of the home player.
+/// Falls back to a uniformly random opponent when the window is empty.
+async fn select_windowed_opponent(
+    db: &SqlitePool,
+    home_id: &Player,
+    rng: &mut impl RngExt,
+) -> Result<Player> {
     // matchmaking
     // todo: make some smulations of different matchmakings?
     let upper = home_id.rating + 0.96 * home_id.deviation;
     let lower = home_id.rating - 0.96 * home_id.deviation;
 
-    let random_id = sqlx::query_as!(
+    let candidates = sqlx::query_as!(
         Player,
-        "SELECT id as \"id!\", rating, deviation, name FROM players
-            WHERE id IN (SELECT id FROM players
-                WHERE id != $1 AND
-                rating <= $2 AND
-                rating >= $3
-                LIMIT 1 OFFSET (ABS(RANDOM()) % (SELECT COUNT(*)
-                    FROM players WHERE id != $1 AND
-                    rating <= $2 AND
-                    rating >= $3))
-                )",
+        "SELECT id, rating, deviation, name FROM players
+        WHERE id != ? AND rating <= ? AND rating >= ?",
         home_id.id,
         upper,
         lower
     )
-    .fetch_one(db)
-    .await;
+    .fetch_all(db)
+    .await?;
 
-    match random_id {
-        Ok(r) => Ok(r),
-        _ => select_random_player_uniform(db, home_id).await,
+    if candidates.is_empty() {
+        select_uniform_opponent(db, home_id, rng).await
+    } else {
+        pick_random(candidates, rng)
     }
 }
 
-async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<Duel>> {
+/// pick an opponent for `home_id` according to `strategy`
+async fn select_opponent(
+    db: &SqlitePool,
+    home_id: &Player,
+    strategy: Strategy,
+    rng: &mut impl RngExt,
+) -> Result<Player> {
+    match strategy {
+        Strategy::Windowed => select_windowed_opponent(db, home_id, rng).await,
+        Strategy::Uniform => select_uniform_opponent(db, home_id, rng).await,
+    }
+}
+
+async fn calculate_new_matches(
+    db: &SqlitePool,
+    n_matches: usize,
+    strategy: Strategy,
+    rng: &mut impl RngExt,
+) -> Result<Vec<Duel>> {
     let n_matches = n_matches as u32;
     let home_players = sqlx::query_as!(
         Player,
@@ -516,14 +601,17 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
     while let Some(home_id) = stream.next().await {
-        if let Ok(guest) = select_random_player(db, &home_id).await {
-            info!("Selected: {} - {}", home_id.name, guest.name);
-            result.push(Duel {
-                home: home_id.name,
-                home_id: home_id.id as u32,
-                guest: guest.name,
-                guest_id: guest.id as u32,
-            });
+        match select_opponent(db, &home_id, strategy, rng).await {
+            Ok(guest) => {
+                info!("Selected: {} - {}", home_id.name, guest.name);
+                result.push(Duel {
+                    home: home_id.name,
+                    home_id: home_id.id as u32,
+                    guest: guest.name,
+                    guest_id: guest.id as u32,
+                });
+            }
+            Err(err) => warn!("Skipping {}, no opponent available: {}", home_id.name, err),
         }
     }
     Ok(result)
@@ -533,9 +621,40 @@ async fn calculate_new_matches(db: &SqlitePool, n_matches: usize) -> Result<Vec<
 mod tests {
     use super::*;
 
+    /// inserts players with explicit (name, rating, deviation) and returns their ids
+    async fn insert_players(db: &SqlitePool, players: &[(&str, f64, f64)]) -> Vec<i64> {
+        let mut ids = Vec::with_capacity(players.len());
+        for (name, rating, deviation) in players {
+            let res = sqlx::query("INSERT INTO players (name, rating, deviation) VALUES (?, ?, ?)")
+                .bind(name)
+                .bind(*rating)
+                .bind(*deviation)
+                .execute(db)
+                .await
+                .unwrap();
+            ids.push(res.last_insert_rowid());
+        }
+        ids
+    }
+
+    async fn get_player(db: &SqlitePool, id: i64) -> Player {
+        sqlx::query_as!(
+            Player,
+            "SELECT id, rating, deviation, name FROM players WHERE id = ?",
+            id
+        )
+        .fetch_one(db)
+        .await
+        .unwrap()
+    }
+
+    fn seeded_rng(seed: u64) -> StdRng {
+        StdRng::seed_from_u64(seed)
+    }
+
     #[tokio::test]
     async fn test_new_pre_configured_creates_correct_number_of_players() {
-        let ic = ImageCollection::new_pre_configured(10).await.unwrap();
+        let ic = ImageCollection::new_pre_configured(10, 42).await.unwrap();
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM players")
             .fetch_one(&ic.db)
             .await
@@ -545,7 +664,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_duel_returns_different_home_and_guest() {
-        let ic = ImageCollection::new_pre_configured(5).await.unwrap();
+        let ic = ImageCollection::new_pre_configured(5, 42).await.unwrap();
         let duel = ic.new_duel().await.unwrap();
         assert_ne!(duel.home_id, duel.guest_id);
         assert!(!duel.home.is_empty());
@@ -554,20 +673,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_duel_fails_with_no_players() {
-        let ic = ImageCollection::new_pre_configured(0).await.unwrap();
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
         assert!(ic.new_duel().await.is_err());
     }
 
     #[tokio::test]
     async fn test_new_duel_fails_with_one_player() {
-        let ic = ImageCollection::new_pre_configured(1).await.unwrap();
+        let ic = ImageCollection::new_pre_configured(1, 42).await.unwrap();
         assert!(ic.new_duel().await.is_err());
     }
 
     #[tokio::test]
     async fn test_calculate_new_matches_returns_duels_up_to_n() {
-        let ic = ImageCollection::new_pre_configured(5).await.unwrap();
-        let duels = calculate_new_matches(&ic.db, 3).await.unwrap();
+        let ic = ImageCollection::new_pre_configured(5, 42).await.unwrap();
+        let mut rng = StdRng::seed_from_u64(1);
+        let duels = calculate_new_matches(&ic.db, 3, Strategy::default(), &mut rng)
+            .await
+            .unwrap();
         assert!(!duels.is_empty());
         assert!(duels.len() <= 3);
         for duel in &duels {
@@ -577,7 +699,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_calculate_new_matches_orders_home_by_deviation() {
-        let ic = ImageCollection::new_pre_configured(3).await.unwrap();
+        let ic = ImageCollection::new_pre_configured(3, 42).await.unwrap();
         sqlx::query("UPDATE players SET deviation = 100 WHERE id = 1")
             .execute(&ic.db)
             .await
@@ -591,7 +713,10 @@ mod tests {
             .await
             .unwrap();
 
-        let duels = calculate_new_matches(&ic.db, 3).await.unwrap();
+        let mut rng = StdRng::seed_from_u64(1);
+        let duels = calculate_new_matches(&ic.db, 3, Strategy::default(), &mut rng)
+            .await
+            .unwrap();
         assert_eq!(duels.len(), 3);
         assert_eq!(duels[0].home_id, 3);
         assert_eq!(duels[1].home_id, 2);
@@ -599,8 +724,237 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_select_windowed_stays_inside_rating_window() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 100.0),     // window: [2104, 2296]
+                ("inside-a", 2200.0, 100.0), // 2200     in window
+                ("inside-b", 2150.0, 50.0),  // 2150     in window
+                ("too-low", 1500.0, 100.0),  // 1500     out of window
+                ("too-high", 2600.0, 100.0), // 2600     out of window
+            ],
+        )
+        .await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut rng = seeded_rng(1);
+        for _ in 0..50 {
+            let guest = select_opponent(&ic.db, &home, Strategy::Windowed, &mut rng)
+                .await
+                .unwrap();
+            assert_ne!(guest.id, home.id);
+            assert!(
+                guest.name.starts_with("inside"),
+                "guest {} with rating {} escaped the window",
+                guest.name,
+                guest.rating
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_select_windowed_falls_back_when_window_is_empty() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        // deviation 1 shrinks the window to +/- 0.96, so nobody qualifies
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 1.0),
+                ("far-below", 1000.0, 1.0),
+                ("far-above", 3000.0, 1.0),
+            ],
+        )
+        .await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut rng = seeded_rng(2);
+        for _ in 0..20 {
+            let guest = select_opponent(&ic.db, &home, Strategy::Windowed, &mut rng)
+                .await
+                .expect("empty window must fall back to a uniform pick, not fail");
+            assert_ne!(guest.id, home.id);
+            assert_ne!(
+                guest.rating, 2200.0,
+                "fallback should be able to return out-of-window players"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_select_uniform_never_fails_with_two_players() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(&ic.db, &[("a", 2200.0, 350.0), ("b", 2200.0, 350.0)]).await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut rng = seeded_rng(3);
+        // regression test: the old OFFSET-based sampler lost ~1 in N draws
+        // as RowNotFound and silently dropped the duel
+        for _ in 0..100 {
+            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &mut rng)
+                .await
+                .expect("two players must always yield an opponent");
+            assert_eq!(guest.id, ids[1]);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_select_opponent_single_player_is_an_error_not_a_panic() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(&ic.db, &[("only", 2200.0, 350.0)]).await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut rng = seeded_rng(4);
+        for strategy in [Strategy::Windowed, Strategy::Uniform] {
+            assert!(
+                select_opponent(&ic.db, &home, strategy, &mut rng)
+                    .await
+                    .is_err(),
+                "strategy {strategy:?} must report an error when no opponent exists"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_select_uniform_covers_every_candidate() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 350.0),
+                ("cand-1", 2200.0, 350.0),
+                ("cand-2", 2200.0, 350.0),
+                ("cand-3", 2200.0, 350.0),
+                ("cand-4", 2200.0, 350.0),
+            ],
+        )
+        .await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut counts = std::collections::HashMap::new();
+        let mut rng = seeded_rng(5);
+        for _ in 0..1000 {
+            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &mut rng)
+                .await
+                .unwrap();
+            assert_ne!(guest.id, home.id, "home player must never be picked");
+            *counts.entry(guest.id).or_insert(0usize) += 1;
+        }
+        for cand in &ids[1..] {
+            assert!(
+                counts.contains_key(cand),
+                "candidate {cand} was never selected — starvation"
+            );
+        }
+        assert_eq!(counts.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_select_uniform_is_roughly_balanced() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 350.0),
+                ("cand-1", 2200.0, 350.0),
+                ("cand-2", 2200.0, 350.0),
+                ("cand-3", 2200.0, 350.0),
+                ("cand-4", 2200.0, 350.0),
+            ],
+        )
+        .await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut counts = std::collections::HashMap::new();
+        let mut rng = seeded_rng(6);
+        for _ in 0..4000 {
+            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &mut rng)
+                .await
+                .unwrap();
+            *counts.entry(guest.id).or_insert(0usize) += 1;
+        }
+        // 4000 draws over 4 candidates => 1000 each; generous +/- 25% band
+        for cand in &ids[1..] {
+            let count = counts.get(cand).copied().unwrap_or(0);
+            assert!(
+                (750..=1250).contains(&count),
+                "candidate {cand} selected {count} times, expected roughly 1000"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_select_uniform_ignores_the_rating_window() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 100.0), // window: [2104, 2296]
+                ("far-away", 1500.0, 100.0),
+                ("inside", 2200.0, 100.0),
+            ],
+        )
+        .await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut rng = seeded_rng(7);
+        let mut saw_out_of_window = false;
+        for _ in 0..50 {
+            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &mut rng)
+                .await
+                .unwrap();
+            if guest.id == ids[1] {
+                saw_out_of_window = true;
+            }
+        }
+        assert!(
+            saw_out_of_window,
+            "uniform strategy must not be limited to the rating window"
+        );
+    }
+
+    #[test]
+    fn test_strategy_from_str() {
+        assert_eq!("windowed".parse::<Strategy>().unwrap(), Strategy::Windowed);
+        assert_eq!("Windowed".parse::<Strategy>().unwrap(), Strategy::Windowed);
+        assert_eq!("uniform".parse::<Strategy>().unwrap(), Strategy::Uniform);
+        assert!("nope".parse::<Strategy>().is_err());
+    }
+
+    /// spec for a planned fix: one batch must never hand out the same guest twice
+    #[tokio::test]
+    #[ignore = "known gap: guests can repeat within one batch of calculate_new_matches"]
+    async fn test_calculate_new_matches_never_reuses_guests() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        insert_players(
+            &ic.db,
+            &[
+                ("p1", 2200.0, 350.0),
+                ("p2", 2200.0, 350.0),
+                ("p3", 2200.0, 350.0),
+                ("p4", 2200.0, 350.0),
+                ("p5", 2200.0, 350.0),
+                ("p6", 2200.0, 350.0),
+            ],
+        )
+        .await;
+
+        let mut rng = seeded_rng(8);
+        let duels = calculate_new_matches(&ic.db, 6, Strategy::Uniform, &mut rng)
+            .await
+            .unwrap();
+        let guests: std::collections::HashSet<u32> = duels.iter().map(|d| d.guest_id).collect();
+        assert_eq!(
+            guests.len(),
+            duels.len(),
+            "guest ids must be unique within one batch"
+        );
+    }
+
+    #[tokio::test]
     async fn test_update_rating_increases_winner_rating() {
-        let ic = ImageCollection::new_pre_configured(2).await.unwrap();
+        let ic = ImageCollection::new_pre_configured(2, 42).await.unwrap();
         let m = Match {
             home_id: 1,
             guest_id: 2,
@@ -632,7 +986,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_draw_does_not_change_ratings_significantly() {
-        let ic = ImageCollection::new_pre_configured(2).await.unwrap();
+        let ic = ImageCollection::new_pre_configured(2, 42).await.unwrap();
         let m = Match {
             home_id: 1,
             guest_id: 2,

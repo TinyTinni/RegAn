@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use image_collection::{ImageCollection, Match, MatchOutcome};
+use image_collection::{ImageCollection, Match, MatchOutcome, Strategy};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 
 #[derive(Parser, Debug)]
@@ -25,6 +27,17 @@ struct Args {
     #[clap(long, default_value_t = 0.0_f64)]
     std_dev: f64,
 
+    /// The matchmaking strategy: "windowed" (rating +/- deviation window)
+    /// or "uniform" (fully random opponents)
+    #[clap(long, default_value = "windowed")]
+    strategy: String,
+
+    /// Seed for all randomness of the run.
+    /// The same seed together with the same arguments yields the same results.
+    /// When omitted, a random seed is chosen and printed to stderr.
+    #[clap(long)]
+    seed: Option<u64>,
+
     /// Prints timings for program runtime
     #[clap(long, default_value_t = false, value_parser)]
     print_timing: bool,
@@ -34,11 +47,20 @@ struct Args {
     no_csv: bool,
 }
 
-async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<ImageCollection> {
-    let collection = ImageCollection::new_pre_configured(samples as u32).await?;
+async fn run_simulation(
+    samples: usize,
+    games: usize,
+    std_dev: f64,
+    seed: u64,
+    strategy: Strategy,
+) -> Result<ImageCollection> {
+    let mut collection = ImageCollection::new_pre_configured(samples as u32, seed).await?;
+    collection.set_strategy(strategy);
 
     let distribution = Normal::new(0_f64, std_dev)?;
-    let mut rng = rand::rng();
+    // different offset than the collection's batch counter so the outcome
+    // noise stream stays independent of the matchmaking stream
+    let mut rng = StdRng::seed_from_u64(seed.wrapping_add(0xD1B5_4A32_D192_ED03));
 
     for _ in 0..games {
         let new_duel = collection.new_duel().await.unwrap();
@@ -63,6 +85,19 @@ async fn run_simulation(samples: usize, games: usize, std_dev: f64) -> Result<Im
     Ok(collection)
 }
 
+/// runs a full simulation and returns its final ranking error (`msre`)
+#[cfg(test)]
+async fn run_and_score(
+    samples: usize,
+    games: usize,
+    std_dev: f64,
+    seed: u64,
+    strategy: Strategy,
+) -> Result<f32> {
+    let collection = run_simulation(samples, games, std_dev, seed, strategy).await?;
+    collection.msre().await
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     env_logger::builder()
@@ -70,9 +105,14 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+    let strategy: Strategy = args.strategy.parse().map_err(anyhow::Error::msg)?;
+    let seed = args.seed.unwrap_or_else(rand::random::<u64>);
+    if args.seed.is_none() {
+        eprintln!("no --seed given, using seed {seed} (rerun with --seed {seed} to reproduce)");
+    }
 
     let start = std::time::Instant::now();
-    let collection = run_simulation(args.samples, args.games, args.std_dev).await?;
+    let collection = run_simulation(args.samples, args.games, args.std_dev, seed, strategy).await?;
 
     if !args.no_csv {
         collection.print_csv().await?;
@@ -89,16 +129,44 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod simulation {
     use super::*;
-    macro_rules! _assert_delta {
-        ($x:expr_2021, $y:expr_2021, $d:expr_2021) => {
-            assert!(($x - $y).abs() < $d && ($y - $x).abs() < $d);
-        };
-    }
+
+    /// baseline: the implemented strategy must keep the absolute ranking error in bounds
     #[tokio::test]
     async fn regression() {
-        // tests if the implemented strategy can help us to keep our MSRE
-        let collection = run_simulation(500, 5000, 50_f64).await.unwrap();
-        let msre = collection.msre().await.unwrap();
+        let msre = run_and_score(500, 5000, 50.0, 42, Strategy::Windowed)
+            .await
+            .unwrap();
+        eprintln!("seed 42: windowed msre {msre}");
         assert!(msre < 25.5, "msre: {msre}");
+    }
+
+    /// relative check: windowed matchmaking must not lose against uniform pairings
+    /// under identical conditions (same seed => only the strategy differs)
+    #[tokio::test]
+    async fn windowed_strategy_is_not_worse_than_uniform() {
+        let seed = 7;
+        let windowed = run_and_score(500, 5000, 50.0, seed, Strategy::Windowed)
+            .await
+            .unwrap();
+        let uniform = run_and_score(500, 5000, 50.0, seed, Strategy::Uniform)
+            .await
+            .unwrap();
+        eprintln!("seed {seed}: windowed msre {windowed}, uniform msre {uniform}");
+        assert!(
+            windowed <= uniform + 1.0,
+            "windowed msre {windowed} vs uniform msre {uniform}"
+        );
+    }
+
+    /// the same seed must reproduce the exact same run
+    #[tokio::test]
+    async fn seeded_runs_are_reproducible() {
+        let a = run_and_score(200, 1000, 50.0, 99, Strategy::Windowed)
+            .await
+            .unwrap();
+        let b = run_and_score(200, 1000, 50.0, 99, Strategy::Windowed)
+            .await
+            .unwrap();
+        assert_eq!(a, b, "same seed must yield identical results");
     }
 }
