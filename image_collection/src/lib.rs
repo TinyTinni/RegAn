@@ -5,6 +5,7 @@ use anyhow::Result;
 use crossbeam_queue::ArrayQueue;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::collections::HashSet;
 use std::str::FromStr;
 use tokio_stream::StreamExt;
 
@@ -50,6 +51,9 @@ impl FromStr for Strategy {
         }
     }
 }
+
+const WINDOW_FACTOR: f64 = 0.96;
+const RECENT_OPPONENTS: i64 = 3;
 
 fn batch_rng(shared: &std::sync::Arc<std::sync::Mutex<StdRng>>) -> StdRng {
     let mut shared = shared.lock().expect("rng mutex poisoned");
@@ -518,13 +522,49 @@ fn pick_random(mut candidates: Vec<Player>, rng: &mut impl RngExt) -> Result<Pla
     Ok(candidates.swap_remove(idx))
 }
 
+/// the opponents `player_id` played against most recently
+async fn recent_opponents(db: &SqlitePool, player_id: i64) -> Result<HashSet<i64>> {
+    let rows = sqlx::query!(
+        "SELECT home_players_id, guest_players_id FROM matches
+        WHERE home_players_id = ? OR guest_players_id = ?
+        ORDER BY id DESC
+        LIMIT ?",
+        player_id,
+        player_id,
+        RECENT_OPPONENTS
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            if r.home_players_id == player_id {
+                r.guest_players_id
+            } else {
+                r.home_players_id
+            }
+        })
+        .collect())
+}
+
+fn retain_eligible(candidates: &mut Vec<Player>, used: &HashSet<i64>, recent: &HashSet<i64>) {
+    candidates.retain(|c| !used.contains(&c.id));
+    // anti-starvation is a preference: only exclude recent opponents
+    // as long as that leaves someone to pick
+    if candidates.iter().any(|c| !recent.contains(&c.id)) {
+        candidates.retain(|c| !recent.contains(&c.id));
+    }
+}
+
 /// uniformly random opponent, ignoring ratings
 async fn select_uniform_opponent(
     db: &SqlitePool,
     home_id: &Player,
+    used: &HashSet<i64>,
+    recent: &HashSet<i64>,
     rng: &mut impl RngExt,
 ) -> Result<Player> {
-    let candidates = sqlx::query_as!(
+    let mut candidates = sqlx::query_as!(
         Player,
         "SELECT id, rating, deviation, name FROM players
         WHERE id != ?",
@@ -532,6 +572,7 @@ async fn select_uniform_opponent(
     )
     .fetch_all(db)
     .await?;
+    retain_eligible(&mut candidates, used, recent);
     pick_random(candidates, rng)
 }
 
@@ -543,14 +584,14 @@ async fn select_uniform_opponent(
 async fn select_windowed_opponent(
     db: &SqlitePool,
     home_id: &Player,
+    used: &HashSet<i64>,
+    recent: &HashSet<i64>,
     rng: &mut impl RngExt,
 ) -> Result<Player> {
-    // matchmaking
-    // todo: make some smulations of different matchmakings?
-    let upper = home_id.rating + 0.96 * home_id.deviation;
-    let lower = home_id.rating - 0.96 * home_id.deviation;
+    let upper = home_id.rating + WINDOW_FACTOR * home_id.deviation;
+    let lower = home_id.rating - WINDOW_FACTOR * home_id.deviation;
 
-    let candidates = sqlx::query_as!(
+    let mut candidates = sqlx::query_as!(
         Player,
         "SELECT id, rating, deviation, name FROM players
         WHERE id != ? AND rating <= ? AND rating >= ?",
@@ -560,9 +601,10 @@ async fn select_windowed_opponent(
     )
     .fetch_all(db)
     .await?;
+    retain_eligible(&mut candidates, used, recent);
 
     if candidates.is_empty() {
-        select_uniform_opponent(db, home_id, rng).await
+        select_uniform_opponent(db, home_id, used, recent, rng).await
     } else {
         pick_random(candidates, rng)
     }
@@ -573,11 +615,13 @@ async fn select_opponent(
     db: &SqlitePool,
     home_id: &Player,
     strategy: Strategy,
+    used: &HashSet<i64>,
     rng: &mut impl RngExt,
 ) -> Result<Player> {
+    let recent = recent_opponents(db, home_id.id).await?;
     match strategy {
-        Strategy::Windowed => select_windowed_opponent(db, home_id, rng).await,
-        Strategy::Uniform => select_uniform_opponent(db, home_id, rng).await,
+        Strategy::Windowed => select_windowed_opponent(db, home_id, used, &recent, rng).await,
+        Strategy::Uniform => select_uniform_opponent(db, home_id, used, &recent, rng).await,
     }
 }
 
@@ -600,9 +644,12 @@ async fn calculate_new_matches(
 
     let mut stream = tokio_stream::iter(home_players);
     let mut result = Vec::new();
+    let mut used_guests = HashSet::new();
     while let Some(home_id) = stream.next().await {
-        match select_opponent(db, &home_id, strategy, rng).await {
+        let picked = select_opponent(db, &home_id, strategy, &used_guests, rng).await;
+        match picked {
             Ok(guest) => {
+                used_guests.insert(guest.id);
                 info!("Selected: {} - {}", home_id.name, guest.name);
                 result.push(Duel {
                     home: home_id.name,
@@ -650,6 +697,18 @@ mod tests {
 
     fn seeded_rng(seed: u64) -> StdRng {
         StdRng::seed_from_u64(seed)
+    }
+
+    async fn insert_match_fixture(db: &SqlitePool, home: i64, guest: i64) {
+        sqlx::query(
+            "INSERT INTO matches (home_players_id, guest_players_id, result, timestamp)
+            VALUES (?, ?, 1.0, '2000-01-01 00:00')",
+        )
+        .bind(home)
+        .bind(guest)
+        .execute(db)
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -717,10 +776,23 @@ mod tests {
         let duels = calculate_new_matches(&ic.db, 3, Strategy::default(), &mut rng)
             .await
             .unwrap();
-        assert_eq!(duels.len(), 3);
-        assert_eq!(duels[0].home_id, 3);
-        assert_eq!(duels[1].home_id, 2);
-        assert_eq!(duels[2].home_id, 1);
+        assert!(!duels.is_empty());
+        assert!(duels.len() <= 3);
+        // homes must appear in deviation order: id 3 (300), id 2 (200), id 1 (100)
+        let order = [3_u32, 2, 1];
+        let seen: Vec<usize> = duels
+            .iter()
+            .map(|d| {
+                order
+                    .iter()
+                    .position(|&id| id == d.home_id)
+                    .expect("unexpected home id")
+            })
+            .collect();
+        assert!(
+            seen.windows(2).all(|w| w[0] < w[1]),
+            "homes out of deviation order: {seen:?}"
+        );
     }
 
     #[tokio::test]
@@ -741,9 +813,10 @@ mod tests {
         let home = get_player(&ic.db, ids[0]).await;
         let mut rng = seeded_rng(1);
         for _ in 0..50 {
-            let guest = select_opponent(&ic.db, &home, Strategy::Windowed, &mut rng)
-                .await
-                .unwrap();
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Windowed, &HashSet::new(), &mut rng)
+                    .await
+                    .unwrap();
             assert_ne!(guest.id, home.id);
             assert!(
                 guest.name.starts_with("inside"),
@@ -771,9 +844,10 @@ mod tests {
         let home = get_player(&ic.db, ids[0]).await;
         let mut rng = seeded_rng(2);
         for _ in 0..20 {
-            let guest = select_opponent(&ic.db, &home, Strategy::Windowed, &mut rng)
-                .await
-                .expect("empty window must fall back to a uniform pick, not fail");
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Windowed, &HashSet::new(), &mut rng)
+                    .await
+                    .expect("empty window must fall back to a uniform pick, not fail");
             assert_ne!(guest.id, home.id);
             assert_ne!(
                 guest.rating, 2200.0,
@@ -792,9 +866,10 @@ mod tests {
         // regression test: the old OFFSET-based sampler lost ~1 in N draws
         // as RowNotFound and silently dropped the duel
         for _ in 0..100 {
-            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &mut rng)
-                .await
-                .expect("two players must always yield an opponent");
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Uniform, &HashSet::new(), &mut rng)
+                    .await
+                    .expect("two players must always yield an opponent");
             assert_eq!(guest.id, ids[1]);
         }
     }
@@ -808,7 +883,7 @@ mod tests {
         let mut rng = seeded_rng(4);
         for strategy in [Strategy::Windowed, Strategy::Uniform] {
             assert!(
-                select_opponent(&ic.db, &home, strategy, &mut rng)
+                select_opponent(&ic.db, &home, strategy, &HashSet::new(), &mut rng)
                     .await
                     .is_err(),
                 "strategy {strategy:?} must report an error when no opponent exists"
@@ -835,9 +910,10 @@ mod tests {
         let mut counts = std::collections::HashMap::new();
         let mut rng = seeded_rng(5);
         for _ in 0..1000 {
-            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &mut rng)
-                .await
-                .unwrap();
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Uniform, &HashSet::new(), &mut rng)
+                    .await
+                    .unwrap();
             assert_ne!(guest.id, home.id, "home player must never be picked");
             *counts.entry(guest.id).or_insert(0usize) += 1;
         }
@@ -869,9 +945,10 @@ mod tests {
         let mut counts = std::collections::HashMap::new();
         let mut rng = seeded_rng(6);
         for _ in 0..4000 {
-            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &mut rng)
-                .await
-                .unwrap();
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Uniform, &HashSet::new(), &mut rng)
+                    .await
+                    .unwrap();
             *counts.entry(guest.id).or_insert(0usize) += 1;
         }
         // 4000 draws over 4 candidates => 1000 each; generous +/- 25% band
@@ -901,9 +978,10 @@ mod tests {
         let mut rng = seeded_rng(7);
         let mut saw_out_of_window = false;
         for _ in 0..50 {
-            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &mut rng)
-                .await
-                .unwrap();
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Uniform, &HashSet::new(), &mut rng)
+                    .await
+                    .unwrap();
             if guest.id == ids[1] {
                 saw_out_of_window = true;
             }
@@ -914,6 +992,138 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_select_opponent_respects_used_guests() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 350.0),
+                ("cand-a", 2200.0, 350.0),
+                ("cand-b", 2200.0, 350.0),
+            ],
+        )
+        .await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let used: HashSet<i64> = [ids[1]].into_iter().collect();
+        let mut rng = seeded_rng(12);
+        for _ in 0..50 {
+            let guest = select_opponent(&ic.db, &home, Strategy::Uniform, &used, &mut rng)
+                .await
+                .unwrap();
+            assert_eq!(guest.id, ids[2], "used guests must never be returned");
+        }
+
+        let used: HashSet<i64> = [ids[1], ids[2]].into_iter().collect();
+        assert!(
+            select_opponent(&ic.db, &home, Strategy::Uniform, &used, &mut rng)
+                .await
+                .is_err(),
+            "once every candidate is used up, selection must fail"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_select_excludes_recent_opponents() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 350.0),
+                ("recent-a", 2200.0, 350.0),
+                ("fresh-b", 2200.0, 350.0),
+                ("recent-d", 2200.0, 350.0),
+                ("fresh-c", 2200.0, 350.0),
+            ],
+        )
+        .await;
+
+        insert_match_fixture(&ic.db, ids[0], ids[1]).await;
+        insert_match_fixture(&ic.db, ids[3], ids[0]).await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut rng = seeded_rng(13);
+        let mut picked = HashSet::new();
+        for _ in 0..50 {
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Windowed, &HashSet::new(), &mut rng)
+                    .await
+                    .unwrap();
+            assert_ne!(guest.id, ids[0]);
+            assert!(
+                guest.id != ids[1] && guest.id != ids[3],
+                "picked recent opponent {}",
+                guest.name
+            );
+            picked.insert(guest.name);
+        }
+        assert!(
+            picked.contains("fresh-b") && picked.contains("fresh-c"),
+            "both never-played opponents must stay reachable: {picked:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_select_degrades_when_everyone_is_recent() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 350.0),
+                ("old-a", 2200.0, 350.0),
+                ("old-b", 2200.0, 350.0),
+            ],
+        )
+        .await;
+
+        insert_match_fixture(&ic.db, ids[0], ids[1]).await;
+        insert_match_fixture(&ic.db, ids[0], ids[2]).await;
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut rng = seeded_rng(14);
+        for _ in 0..20 {
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Windowed, &HashSet::new(), &mut rng)
+                    .await
+                    .expect("anti-starvation must not starve the batch when everyone is recent");
+            assert!(guest.id == ids[1] || guest.id == ids[2]);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recent_opponents_expire_after_n() {
+        let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
+        let ids = insert_players(
+            &ic.db,
+            &[
+                ("home", 2200.0, 350.0),
+                ("oldest", 2200.0, 350.0),
+                ("mid-b", 2200.0, 350.0),
+                ("mid-c", 2200.0, 350.0),
+                ("newest", 2200.0, 350.0),
+            ],
+        )
+        .await;
+
+        for id in &ids[1..] {
+            insert_match_fixture(&ic.db, ids[0], *id).await;
+        }
+
+        let home = get_player(&ic.db, ids[0]).await;
+        let mut rng = seeded_rng(15);
+        for _ in 0..50 {
+            let guest =
+                select_opponent(&ic.db, &home, Strategy::Windowed, &HashSet::new(), &mut rng)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                guest.id, ids[1],
+                "only the opponent beyond the last {RECENT_OPPONENTS} must remain eligible"
+            );
+        }
+    }
+
     #[test]
     fn test_strategy_from_str() {
         assert_eq!("windowed".parse::<Strategy>().unwrap(), Strategy::Windowed);
@@ -922,9 +1132,7 @@ mod tests {
         assert!("nope".parse::<Strategy>().is_err());
     }
 
-    /// spec for a planned fix: one batch must never hand out the same guest twice
     #[tokio::test]
-    #[ignore = "known gap: guests can repeat within one batch of calculate_new_matches"]
     async fn test_calculate_new_matches_never_reuses_guests() {
         let ic = ImageCollection::new_pre_configured(0, 42).await.unwrap();
         insert_players(
