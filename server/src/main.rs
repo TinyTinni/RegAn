@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
     .tcp_nodelay(true)
     .bind(&addr)?;
 
-    println!("Start Server on {}.", addr);
+    println!("Start Server on {addr}.");
     server.run().await?;
     img_col.close().await;
     Ok(())
@@ -164,7 +164,7 @@ mod tests {
 
     #[actix_web::test]
     async fn test_get_matches_returns_duel() {
-        let img_col = ImageCollection::new_pre_configured(5).await.unwrap();
+        let img_col = ImageCollection::new_pre_configured(5, 42).await.unwrap();
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(img_col))
@@ -184,7 +184,7 @@ mod tests {
 
     #[actix_web::test]
     async fn test_post_matches_accepts_valid_match_and_returns_duel() {
-        let img_col = ImageCollection::new_pre_configured(5).await.unwrap();
+        let img_col = ImageCollection::new_pre_configured(5, 42).await.unwrap();
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(img_col))
@@ -211,7 +211,7 @@ mod tests {
 
     #[actix_web::test]
     async fn test_post_matches_invalid_json_returns_400() {
-        let img_col = ImageCollection::new_pre_configured(5).await.unwrap();
+        let img_col = ImageCollection::new_pre_configured(5, 42).await.unwrap();
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(img_col))
@@ -230,7 +230,7 @@ mod tests {
 
     #[actix_web::test]
     async fn test_post_matches_invalid_outcome_returns_400() {
-        let img_col = ImageCollection::new_pre_configured(5).await.unwrap();
+        let img_col = ImageCollection::new_pre_configured(5, 42).await.unwrap();
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(img_col))
@@ -249,7 +249,7 @@ mod tests {
 
     #[actix_web::test]
     async fn test_get_matches_no_players_returns_error() {
-        let img_col = ImageCollection::new_pre_configured(0).await.unwrap();
+        let img_col = ImageCollection::new_pre_configured(0, 42).await.unwrap();
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(img_col))
